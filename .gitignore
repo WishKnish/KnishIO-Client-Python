@@ -1,0 +1,124 @@
+# C extensions
+*.so
+
+# Hide sublime text stuff
+*.sublime-project
+*.sublime-workspace
+
+# Hide some OS X stuff
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+
+# Thumbnails
+._*
+
+# emacs auto backups
+*~
+*#
+*.orig
+
+# vimmy stuff
+*.swp
+*.swo
+tags
+ctags.tmp
+
+# Windows Explorer
+desktop.ini
+/home-assistant.pyproj
+/home-assistant.sln
+/.vs/*
+
+# vagrant stuff
+virtualization/vagrant/setup_done
+virtualization/vagrant/.vagrant
+virtualization/vagrant/config
+
+# Visual Studio Code
+.vscode/
+.vscode/*
+!.vscode/cSpell.json
+!.vscode/extensions.json
+!.vscode/tasks.json
+
+# mypy
+/.mypy_cache/*
+/.dmypy.json
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Django stuff:
+*.log
+local_settings.py
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Translations
+*.mo
+*.pot
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*,cover
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# PyInstaller
+# Usually these files are written by a python script from a template
+# before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Distribution / packaging
+.Python
+env/
+venv/
+pyvenv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+.python-version
+.env
+.venv
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDEA IDE files
+.idea/
+*.iml
