@@ -79,7 +79,7 @@ def random_string(length: int = 256, alphabet: str = 'abcdef0123456789') -> str:
     return ''.join(random.choice(alphabet) for _ in range(length))
 
 
-def number(value: Union[float, int, str]) -> Union[float, int]:
+def number(value: Union[float, int, str]) -> float:
     """
     Convert string to number
 
@@ -87,11 +87,10 @@ def number(value: Union[float, int, str]) -> Union[float, int]:
     :return: Union[float, int]
     """
     var = str(value)
-    if var.isnumeric():
-        if "." in var:
-            return float(var)
-        return int(var)
-    return 0
+    try:
+        return float(var)
+    except ValueError:
+        return 0.0
 
 
 def encode(value: Any, code: str = 'utf-8') -> bytes:
