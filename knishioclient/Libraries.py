@@ -5,6 +5,7 @@ import math
 import random
 import json
 from numpy import array, multiply, add, mod, floor_divide
+from lzstring import LZString
 from knishioclient.Typing import Union, Any, List
 from knishioclient import Client
 
@@ -100,6 +101,26 @@ def encode(value: Any, code: str = 'utf-8') -> bytes:
     :return: bytes
     """
     return str(value).encode(code)
+
+
+def compress(string: str) -> str:
+    """
+    Compresses a given string for web sharing
+
+    :param string: str
+    :return: str
+    """
+    return LZString.compressToBase64(string)
+
+
+def decompress(string: str) -> str:
+    """
+    Decompresses a compressed string
+
+    :param string: str
+    :return: str
+    """
+    return LZString.decompressFromBase64(string)
 
 
 class Coder(json.JSONEncoder):

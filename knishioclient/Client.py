@@ -2,8 +2,8 @@
 from hashlib import shake_256 as shake
 from json import JSONDecoder
 from numpy import array, add
-from knishioclient.Libraries import (current_time_millis, encode, charset_base_convert, number, chunk_substr, random_string,
-                                     Coder)
+from knishioclient.Libraries import (current_time_millis, encode, charset_base_convert, number, chunk_substr,
+                                     random_string, compress, decompress, Coder)
 from knishioclient.Typing import Union, List, Metas, Dict, StrOrNone
 
 
@@ -383,9 +383,12 @@ class Molecule(_Base):
 
             signature_fragments = '%s%s' % (signature_fragments, working_chunk)
 
+        # Compressing the OTS
+        signature_fragments = compress(signature_fragments)
         last_position = None
 
-        for chunk_count, signature in enumerate(chunk_substr(signature_fragments, round(2048 / len(self.atoms)))):
+        for chunk_count, signature in enumerate(chunk_substr(signature_fragments, round(
+                len(signature_fragments) / len(self.atoms)))):
             atom = self.atoms[chunk_count]
             atom.otsFragment = signature
             last_position = atom.position
@@ -456,6 +459,14 @@ class Molecule(_Base):
             # Rebuilding OTS out of all the atoms
             ots, wallet_address = ''.join([atom.otsFragment for atom in atoms]), first_atom.walletAddress
             key_fragments = ''
+
+            # Wrong size? Maybe it's compressed
+            if 2048 != len(ots):
+                # Attempt decompression
+                ots = decompress(ots)
+                # Still wrong? That's a failure
+                if 2048 != len(ots):
+                    return False
 
             # Subdivide Kk into 16 segments of 256 bytes (128 characters) each
             for index, ots_chunk in enumerate(map(''.join, zip(*[iter(ots)] * 128))):
