@@ -243,7 +243,7 @@ class Molecule(_Base):
                 setattr(target, prop, stream[prop])
         return target
 
-    def init_value(self, source: Wallet, recipient: Wallet, remainder: Wallet, value: Union[int, float]) -> List[Atom]:
+    def init_value(self, source: Wallet, recipient: Wallet, remainder: Wallet, value: Union[int, float]) -> 'Molecule':
         """
         Initialize a V-type molecule to transfer value from one wallet to another, with a third,
         regenerated wallet receiving the remainder
@@ -252,30 +252,27 @@ class Molecule(_Base):
         :param recipient: Wallet
         :param remainder: Wallet
         :param value: Union[int, float]
-        :return: List[Atom]
+        :return: self
         """
         self.molecularHash = None
-        position = int(source.position, 16)
 
         self.atoms.append(
             Atom(
-                '%x' % position,
+                source.position,
                 source.address,
                 'V',
                 source.token,
                 -value,
-                'remainderWallet',
-                remainder.address,
-                {'remainderPosition': remainder.position},
+                None,
+                None,
+                None,
                 None
             )
         )
 
-        position += 1
-
         self.atoms.append(
             Atom(
-                '%x' % position,
+                recipient.position,
                 recipient.address,
                 'V',
                 source.token,
@@ -287,10 +284,24 @@ class Molecule(_Base):
             )
         )
 
-        return self.atoms
+        self.atoms.append(
+            Atom(
+                remainder.position,
+                remainder.address,
+                'V',
+                source.token,
+                source.balance - value,
+                'walletBundle',
+                remainder.bundle,
+                None,
+                None
+            )
+        )
+
+        return self
 
     def init_token_creation(self, source: Wallet, recipient: Wallet, amount: Union[int, float],
-                            token_meta: Union[List, Dict]) -> List[Atom]:
+                            token_meta: Union[List, Dict]) -> 'Molecule':
         """
         Initialize a C-type molecule to issue a new type of token
 
@@ -298,7 +309,7 @@ class Molecule(_Base):
         :param recipient: Wallet
         :param amount: Union[int, float]
         :param token_meta: Union[List, Dict]
-        :return: List[Atom]
+        :return: self
         """
         self.molecularHash = None
         metas = Atom.normalize_meta(token_meta)
@@ -321,10 +332,10 @@ class Molecule(_Base):
             )
         )
 
-        return self.atoms
+        return self
 
     def init_meta(self, wallet: Wallet, meta: Union[List, Dict], meta_type: str,
-                  meta_id: Union[str, int]) -> List[Atom]:
+                  meta_id: Union[str, int]) -> 'Molecule':
         """
         Initialize an M-type molecule with the given data
 
@@ -332,7 +343,7 @@ class Molecule(_Base):
         :param meta: Union[List, Dict]
         :param meta_type: str
         :param meta_id: Union[str, int]
-        :return: List[Atom]
+        :return: self
         """
         self.molecularHash = None
         self.atoms.append(
@@ -349,7 +360,7 @@ class Molecule(_Base):
             )
         )
 
-        return self.atoms
+        return self
 
     def sign(self, secret: str, anonymous: bool = False) -> StrOrNone:
         """
@@ -415,9 +426,17 @@ class Molecule(_Base):
         if molecule.molecularHash is not None and 0 < len(molecule.atoms):
             v_atoms = [atom for atom in molecule.atoms if 'V' == atom.isotope]
             for token in set(item.token for item in v_atoms):
-                total = sum([number(atom.value) for atom in v_atoms if atom.token == token])
-                if 0 != total:
-                    return False
+                # We get all the V atoms for this token
+                atoms_token = [atom for atom in v_atoms if atom.token == token]
+                # Each token transaction consists of 3 atoms. Break atoms into transactions
+                for atoms in [atoms_token[chunk: chunk + 3] for chunk in range(0, len(atoms_token), 3)]:
+                    # If less than 3 atoms are involved in the transaction, these are integrity violations.
+                    # If the sum of the first two atoms is not equal to zero,
+                    # this violates the integrity of the transaction.
+                    # If after the transaction the poisoner wallet has a negative balance,
+                    # this is a violation of the integrity of the transaction.
+                    if len(atoms) < 3 or sum(atoms[:2]) != 0 or sum(atoms) < 0:
+                        return False
             return True
         return False
 
