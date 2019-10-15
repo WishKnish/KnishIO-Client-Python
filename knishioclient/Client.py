@@ -544,13 +544,14 @@ class Molecule(_Base):
 
         return self
 
-    def sign(self, secret: str, anonymous: bool = False) -> StrOrNone:
+    def sign(self, secret: str, anonymous: bool = False, compressed: bool = True) -> StrOrNone:
         """
         Creates a one-time signature for a molecule and breaks it up across multiple atoms within that
         molecule. Resulting 4096 byte (2048 character) string is the one-time signature.
 
         :param secret: str
         :param anonymous: bool default False
+        :param compressed: bool default True
         :return: StrOrNone
         :raise TypeError: The molecule does not contain atoms
         """
@@ -577,7 +578,9 @@ class Molecule(_Base):
             signature_fragments = '%s%s' % (signature_fragments, working_chunk)
 
         # Compressing the OTS
-        signature_fragments = Strings.compress(signature_fragments)
+        if compressed:
+            signature_fragments = Strings.hex_to_base64(signature_fragments)
+
         last_position = None
 
         for chunk_count, signature in enumerate(Strings.chunk_substr(signature_fragments, math.ceil(
@@ -769,7 +772,7 @@ class Molecule(_Base):
         # Wrong size? Maybe it's compressed
         if 2048 != len(ots):
             # Attempt decompression
-            ots = Strings.decompress(ots)
+            ots = Strings.base64_to_hex(ots)
             # Still wrong? That's a failure
             if 2048 != len(ots):
                 raise SignatureMalformedException()

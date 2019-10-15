@@ -105,7 +105,7 @@ class Strings(object):
         return str(sum(map(lambda x: int(x), str(time.time() * 1000).split('.'))))
 
     @classmethod
-    def compress(cls, string: str) -> str:
+    def hex_to_base64(cls, string: str) -> str:
         """
         Compresses a given string for web sharing
 
@@ -115,7 +115,7 @@ class Strings(object):
         return Strings.decode(base64_encode(hex_decode(string)))
 
     @classmethod
-    def decompress(cls, string: str) -> str:
+    def base64_to_hex(cls, string: str) -> str:
         """
         Decompresses a compressed string
 
