@@ -1,10 +1,64 @@
 # -*- coding: utf-8 -*-
+
+import math
 from hashlib import shake_256 as shake
-from json import JSONDecoder
+from json import JSONDecoder, JSONEncoder
 from numpy import array, add
-from knishioclient.Libraries import (current_time_millis, encode, charset_base_convert, number, chunk_substr,
-                                     random_string, compress, decompress, Coder)
-from knishioclient.Typing import Union, List, Metas, Dict, StrOrNone
+from typing import Union, List, Dict, Any
+
+from .Exception import *
+from .Libraries import *
+
+__all__ = (
+    'Meta',
+    'Atom',
+    'Wallet',
+    'Molecule',
+)
+
+
+class Coder(JSONEncoder):
+    """ class Coder """
+    def default(self, value: Any) -> Any:
+        """
+        :param value: Any
+        :return: Any
+        """
+        if isinstance(value, Atom):
+            return {
+                'position': value.position,
+                'walletAddress': value.walletAddress,
+                'isotope': value.isotope,
+                'token': value.token,
+                'value': value.value,
+                'metaType': value.metaType,
+                'metaId': value.metaId,
+                'meta': value.meta,
+                'index': value.index,
+                'otsFragment': value.otsFragment,
+                'createdAt': value.createdAt,
+            }
+
+        if isinstance(value, Molecule):
+            return {
+                'molecularHash': value.molecularHash,
+                'cellSlug': value.cellSlug,
+                'bundle': value.bundle,
+                'status': value.status,
+                'createdAt': value.createdAt,
+                'atoms': value.atoms,
+            }
+
+        if isinstance(value, Meta):
+            return {
+                'modelType': value.modelType,
+                'modelId': value.modelId,
+                'meta': value.meta,
+                'snapshotMolecule': value.snapshotMolecule,
+                'createdAt': value.createdAt,
+            }
+
+        return super().default(self, value)
 
 
 class _Base(object):
@@ -27,6 +81,147 @@ class _Base(object):
         return Coder().encode(self)
 
 
+class Meta(_Base):
+    """class Meta"""
+
+    modelType: str
+    modelId: str
+    meta: Metas
+    snapshotMolecule: str
+    createdAt: str
+
+    def __int__(self, model_type: str, model_id: str, meta: Metas, snapshot_molecule: str = None) -> None:
+        """
+        :param model_type: str
+        :param model_id: str
+        :param meta: Metas
+        :param snapshot_molecule: str default None
+        """
+        self.modelType = model_type
+        self.modelId = model_id
+        self.meta = meta
+        self.snapshotMolecule = snapshot_molecule
+        self.createdAt = Strings.current_time_millis()
+
+    @classmethod
+    def normalize_meta(cls, metas: Union[List, Dict]) -> List[Dict]:
+        """
+        :param metas: Union[List, Dict]
+        :return: List[Dict]
+        """
+        if isinstance(metas, dict):
+            return [{"key": key, "value": value} for key, value in metas.items()]
+        return metas
+
+    @classmethod
+    def aggregate_meta(cls, metas: List[Dict]) -> Dict:
+        """
+        :param metas: List[Dict]
+        :return: Dict
+        """
+        aggregate = {}
+
+        if len(metas) > 0:
+            for meta in metas:
+                aggregate.update(meta)
+
+        return aggregate
+
+
+class Atom(_Base):
+    """class Atom"""
+
+    position: str
+    walletAddress: str
+    isotope: str
+    token: StrOrNone
+    value: StrOrNone
+    metaType: StrOrNone
+    metaId: StrOrNone
+    meta: List[Dict]
+    index: int
+    otsFragment: StrOrNone
+    createdAt: str
+
+    def __init__(self, position: str, wallet_address: str, isotope: str, token: str = None,
+                 value: Union[str, int, float] = None, meta_type: str = None, meta_id: str = None,
+                 meta: Metas = None, ots_fragment: str = None, index: int = None) -> None:
+        self.position = position
+        self.walletAddress = wallet_address
+        self.isotope = isotope
+        self.token = token
+        self.value = str(value) if not isinstance(value, str) and value is not None else value
+
+        self.metaType = meta_type
+        self.metaId = meta_id
+        self.meta = Meta.normalize_meta(meta) if meta is not None else []
+
+        self.index = index
+        self.otsFragment = ots_fragment
+        self.createdAt = Strings.current_time_millis()
+
+    @classmethod
+    def json_to_object(cls, string: str) -> 'Atom':
+        """
+        :param string: str
+        :return: Atom
+        """
+        target, stream = Atom('', '', ''), JSONDecoder().decode(string)
+
+        for prop in target.__dict__.keys():
+            if prop in stream:
+                setattr(target, prop, stream[prop])
+
+        return target
+
+    @classmethod
+    def hash_atoms(cls, atoms: List['Atom'], output: str = 'base17') -> Union[str, None, List]:
+        """
+        :param atoms: List[Atom]
+        :param output: str default base17
+        :return: Union[str, None, List]
+        """
+        atom_list = Atom.sort_atoms(atoms)
+        molecular_sponge = shake()
+        number_of_atoms = Strings.encode(str(len(atom_list)))
+
+        for atom in atom_list:
+            molecular_sponge.update(number_of_atoms)
+
+            for prop, value in atom.__dict__.items():
+                if prop in ['otsFragment', 'index']:
+                    continue
+                elif prop in ['meta']:
+                    atom.meta = Meta.normalize_meta(value)
+                    for meta in atom.meta:
+                        molecular_sponge.update(Strings.encode(meta['key']))
+                        molecular_sponge.update(Strings.encode(meta['value']))
+                elif prop in ['position', 'walletAddress', 'isotope'] or value is not None:
+                    molecular_sponge.update(Strings.encode(value))
+
+        target = None
+
+        if output in ['hex']:
+            target = molecular_sponge.hexdigest(32)
+        elif output in ['array']:
+            target = list(molecular_sponge.hexdigest(32))
+        elif output in ['base17']:
+            target = Strings.charset_base_convert(
+                molecular_sponge.hexdigest(32), 16, 17, '0123456789abcdef', '0123456789abcdefg'
+            )
+            target = target.rjust(64, '0') if isinstance(target, str) else None
+
+        return target
+
+    @classmethod
+    def sort_atoms(cls, atoms: List['Atom']) -> List:
+        """
+        :param atoms: List[Atom]
+        :return: List[Atom]
+        """
+        return sorted(atoms, key=lambda atom: atom.index)
+
+
 class Wallet(object):
     """class Wallet"""
 
@@ -37,26 +232,27 @@ class Wallet(object):
     balance: Union[int, float]
     molecules: List
     bundle: str
+    privkey: str
+    pubkey: str
 
-    def __init__(self, secret: str, token: str = 'USER', position: str = None, salt_length: int = 64) -> None:
-        self.position = position or random_string(salt_length)
+    def __init__(self, secret: str = None, token: str = 'USER', position: str = None, salt_length: int = 64) -> None:
+        """
+        :param secret: str default None
+        :param token: str default USER
+        :param position: str default None
+        :param salt_length: int default 64
+        """
+        self.position = position or Strings.random_string(salt_length)
         self.token = token
-        self.key = Wallet.generate_key(secret, token, self.position)
-        self.address = Wallet.generate_address(self.key)
         self.balance = 0
         self.molecules = []
-        self.bundle = Wallet.generate_bundle_hash(secret)
 
-    @classmethod
-    def generate_bundle_hash(cls, secret: str) -> str:
-        """
-        :param secret: str
-        :return: str
-        """
-        sponge = shake()
-        sponge.update(encode(secret))
-
-        return sponge.hexdigest(32)
+        if secret is not None:
+            self.key = Wallet.generate_key(secret, token, self.position)
+            self.address = Wallet.generate_address(self.key)
+            self.bundle = Crypto.generate_bundle_hash(secret)
+            self.privkey = self.get_my_enc_private_key()
+            self.pubkey = self.get_my_enc_public_key()
 
     @classmethod
     def generate_address(cls, key: str) -> str:
@@ -66,18 +262,18 @@ class Wallet(object):
         """
         digest_sponge = shake()
 
-        for fragment in chunk_substr(key, 128):
+        for fragment in Strings.chunk_substr(key, 128):
             working_fragment = fragment
 
             for _ in range(16):
                 working_sponge = shake()
-                working_sponge.update(encode(working_fragment))
+                working_sponge.update(Strings.encode(working_fragment))
                 working_fragment = working_sponge.hexdigest(64)
 
-            digest_sponge.update(encode(working_fragment))
+            digest_sponge.update(Strings.encode(working_fragment))
 
         sponge = shake()
-        sponge.update(encode(digest_sponge.hexdigest(1024)))
+        sponge.update(Strings.encode(digest_sponge.hexdigest(1024)))
 
         return sponge.hexdigest(32)
 
@@ -102,103 +298,56 @@ class Wallet(object):
 
         # Hashing the intermediate key to produce the private key
         sponge = shake()
-        sponge.update(encode(intermediate_key_sponge.hexdigest(1024)))
+        sponge.update(Strings.encode(intermediate_key_sponge.hexdigest(1024)))
 
         return sponge.hexdigest(1024)
 
-
-class Atom(_Base):
-    """class Atom"""
-
-    position: str
-    walletAddress: str
-    isotope: str
-    token: StrOrNone
-    value: StrOrNone
-    metaType: StrOrNone
-    metaId: StrOrNone
-    meta: List[Dict]
-    otsFragment: StrOrNone
-    createdAt: str
-
-    def __init__(self, position: str, wallet_address: str, isotope: str, token: str = None,
-                 value: Union[str, int, float] = None, meta_type: str = None, meta_id: str = None,
-                 meta: Metas = None, ots_fragment: str = None) -> None:
-        self.position = position
-        self.walletAddress = wallet_address
-        self.isotope = isotope
-        self.token = token
-        self.value = str(value) if not isinstance(value, str) and value is not None else value
-
-        self.metaType = meta_type
-        self.metaId = meta_id
-        self.meta = Atom.normalize_meta(meta) if meta is not None else []
-
-        self.otsFragment = ots_fragment
-        self.createdAt = current_time_millis()
-
-    @classmethod
-    def json_to_object(cls, string: str) -> 'Atom':
+    def get_my_enc_private_key(self) -> str:
         """
-        :param string: str
-        :return: Atom
+        Derives a private key for encrypting data with this wallet's key
+
+        :return: str
         """
-        target, stream = Atom('', '', ''), JSONDecoder().decode(string)
+        return Crypto.generate_enc_private_key(self.key)
 
-        for prop in target.__dict__.keys():
-            if prop in stream:
-                setattr(target, prop, stream[prop])
-
-        return target
-
-    @classmethod
-    def hash_atoms(cls, atoms: List['Atom'], output: str = 'base17') -> Union[str, None, List]:
+    def get_my_enc_public_key(self) -> str:
         """
-        :param atoms: List["Atom"]
-        :param output: str default 'base17'
-        :return: Union[str, None, List]
+        Dervies a public key for encrypting data for this wallet's consumption
+
+        :return: str
         """
-        atom_list = sorted([*atoms], key=lambda item: item.position)
-        molecular_sponge = shake()
-        number_of_atoms = encode(str(len(atom_list)))
+        return Crypto.generate_enc_public_key(self.get_my_enc_private_key())
 
-        for atom in atom_list:
-            molecular_sponge.update(number_of_atoms)
+    def get_my_enc_shared_key(self, other_public_key: str) -> str:
+        """
+        Creates a shared key by combining this wallet's private key and another wallet's public key
 
-            for prop, value in atom.__dict__.items():
-                if prop in ['otsFragment']:
-                    continue
-                elif prop in ['meta']:
-                    atom.meta = Atom.normalize_meta(value)
-                    for meta in atom.meta:
-                        molecular_sponge.update(encode(meta['key']))
-                        molecular_sponge.update(encode(meta['value']))
-                elif prop in ['position', 'walletAddress', 'isotope'] or value is not None:
-                    molecular_sponge.update(encode(value))
+        :param other_public_key: str
+        :return: str
+        """
+        return Crypto.generate_enc_shared_key(self.get_my_enc_private_key(), other_public_key)
 
-        target = None
+    def decrypt_my_message(self, message: str, other_public_key: str = None) -> Message:
+        """
+        Uses the current wallet's private key to decrypt the given message
 
-        if output in ['hex']:
-            target = molecular_sponge.hexdigest(32)
-        elif output in ['array']:
-            target = list(molecular_sponge.hexdigest(32))
-        elif output in ['base17']:
-            target = charset_base_convert(
-                molecular_sponge.hexdigest(32), 16, 17, '0123456789abcdef', '0123456789abcdefg'
+        :param message: str
+        :param other_public_key: str default None
+        :return: List or Dict or None
+        """
+
+        if other_public_key is None:
+            target = Crypto.decrypt_message(message, self.get_my_enc_public_key())
+        else:
+            target = Crypto.decrypt_message(
+                message,
+                Crypto.generate_enc_public_key(self.get_my_enc_shared_key(other_public_key))
             )
-            target = target.rjust(64, '0') if isinstance(target, str) else None
+
+            if target is None:
+                target = Crypto.decrypt_message(message, other_public_key)
 
         return target
-
-    @classmethod
-    def normalize_meta(cls, meta: Union[List, Dict]) -> List[Dict]:
-        """
-        :param meta: Union[List, Dict]
-        :return: List[Dict]
-        """
-        if isinstance(meta, dict):
-            return [{"key": key, "value": value} for key, value in meta.items()]
-        return meta
 
 
 class Molecule(_Base):
@@ -212,11 +361,14 @@ class Molecule(_Base):
     atoms: List[Atom]
 
     def __init__(self, cell_slug: str = None) -> None:
+        """
+        :param cell_slug: str default None
+        """
         self.molecularHash = None
         self.cellSlug = cell_slug
         self.bundle = None
         self.status = None
-        self.createdAt = current_time_millis()
+        self.createdAt = Strings.current_time_millis()
         self.atoms = []
 
     @classmethod
@@ -226,21 +378,33 @@ class Molecule(_Base):
         :return: Molecule
         """
         target, stream = Molecule(), JSONDecoder().decode(string)
+
         for prop in target.__dict__.keys():
+
             if prop in stream:
+
                 if prop in ['atoms']:
+
                     if not isinstance(stream[prop], list):
                         raise TypeError('The atoms property must contain a list')
+
                     atoms = []
+
                     for item in stream[prop]:
                         atom = Atom.json_to_object(Coder().encode(item))
+
                         for key in ['position', 'walletAddress', 'isotope']:
+
                             if getattr(atom, key) in ['']:
                                 raise TypeError('the %s property must not be empty' % key)
+
                         atoms.append(atom)
+
                     setattr(target, prop, atoms)
                     continue
+
                 setattr(target, prop, stream[prop])
+
         return target
 
     def init_value(self, source: Wallet, recipient: Wallet, remainder: Wallet, value: Union[int, float]) -> 'Molecule':
@@ -254,6 +418,10 @@ class Molecule(_Base):
         :param value: Union[int, float]
         :return: self
         """
+
+        if (source.balance - value) < 0:
+            raise BalanceInsufficientException()
+
         self.molecularHash = None
 
         self.atoms.append(
@@ -266,7 +434,8 @@ class Molecule(_Base):
                 None,
                 None,
                 None,
-                None
+                None,
+                self.generate_index()
             )
         )
 
@@ -280,7 +449,8 @@ class Molecule(_Base):
                 'walletBundle',
                 recipient.bundle,
                 None,
-                None
+                None,
+                self.generate_index()
             )
         )
 
@@ -294,9 +464,12 @@ class Molecule(_Base):
                 'walletBundle',
                 remainder.bundle,
                 None,
-                None
+                None,
+                self.generate_index()
             )
         )
+
+        self.atoms = Atom.sort_atoms(self.atoms)
 
         return self
 
@@ -312,9 +485,11 @@ class Molecule(_Base):
         :return: self
         """
         self.molecularHash = None
-        metas = Atom.normalize_meta(token_meta)
+
+        metas = Meta.normalize_meta(token_meta)
 
         for key in ['walletAddress', 'walletPosition']:
+
             if 0 == len([meta for meta in metas if 'key' in meta and key == meta['key']]):
                 metas.append({'key': key, 'value': getattr(recipient, key[6:].lower())})
 
@@ -328,9 +503,12 @@ class Molecule(_Base):
                 'token',
                 recipient.token,
                 metas,
-                None
+                None,
+                self.generate_index()
             )
         )
+
+        self.atoms = Atom.sort_atoms(self.atoms)
 
         return self
 
@@ -346,6 +524,7 @@ class Molecule(_Base):
         :return: self
         """
         self.molecularHash = None
+
         self.atoms.append(
             Atom(
                 wallet.position,
@@ -355,10 +534,13 @@ class Molecule(_Base):
                 None,
                 meta_type,
                 meta_id,
-                meta,
-                None
+                Meta.normalize_meta(meta),
+                None,
+                self.generate_index()
             )
         )
+
+        self.atoms = Atom.sort_atoms(self.atoms)
 
         return self
 
@@ -373,33 +555,34 @@ class Molecule(_Base):
         :raise TypeError: The molecule does not contain atoms
         """
         if len(self.atoms) == 0 or len([atom for atom in self.atoms if not isinstance(atom, Atom)]) != 0:
-            raise TypeError('The molecule does not contain atoms')
+            raise AtomsMissingException()
 
         if not anonymous:
-            self.bundle = Wallet.generate_bundle_hash(secret)
+            self.bundle = Crypto.generate_bundle_hash(secret)
 
         self.molecularHash = Atom.hash_atoms(self.atoms)
         first_atom, normalized_hash, signature_fragments = (self.atoms[0],
                                                             Molecule.normalize(Molecule.enumerate(self.molecularHash)),
                                                             '')
         for idx, chunk in enumerate(
-                chunk_substr(Wallet.generate_key(secret, first_atom.token, first_atom.position), 128)):
+                Strings.chunk_substr(Wallet.generate_key(secret, first_atom.token, first_atom.position), 128)):
 
             working_chunk = chunk
 
             for _ in range(8 - normalized_hash[idx]):
                 sponge = shake()
-                sponge.update(encode(working_chunk))
+                sponge.update(Strings.encode(working_chunk))
                 working_chunk = sponge.hexdigest(64)
 
             signature_fragments = '%s%s' % (signature_fragments, working_chunk)
 
         # Compressing the OTS
-        signature_fragments = compress(signature_fragments)
+        signature_fragments = Strings.compress(signature_fragments)
         last_position = None
 
-        for chunk_count, signature in enumerate(chunk_substr(signature_fragments, round(
+        for chunk_count, signature in enumerate(Strings.chunk_substr(signature_fragments, math.ceil(
                 len(signature_fragments) / len(self.atoms)))):
+
             atom = self.atoms[chunk_count]
             atom.otsFragment = signature
             last_position = atom.position
@@ -416,39 +599,123 @@ class Molecule(_Base):
         self.__init__(self.cellSlug)
         return self
 
-    @classmethod
-    def verify_token_isotope_v(cls, molecule: 'Molecule') -> bool:
+    def generate_index(self) -> int:
         """
+        :return: int
+        """
+        return Molecule.generate_next_atom_index(self.atoms)
+
+    @classmethod
+    def verify_isotope_v(cls, molecule: 'Molecule', sender: Wallet = None) -> bool:
+        """
+        Verification of V-isotope molecules checks to make sure that:
+        1. we're sending and receiving the same token
+        2. we're only subtracting on the first atom
 
         :param molecule: Molecule
+        :param sender: Wallet default None
         :return: bool
+        :raises [MolecularHashMissingException, AtomsMissingException, TransferMismatchedException, TransferToSelfException, TransferUnbalancedException, TransferBalanceException, TransferRemainderException]:
         """
-        if molecule.molecularHash is not None and 0 < len(molecule.atoms):
-            v_atoms = [atom for atom in molecule.atoms if 'V' == atom.isotope]
-            for token in set(item.token for item in v_atoms):
-                # We get all the V atoms for this token
-                atoms_token = [atom for atom in v_atoms if atom.token == token]
-                # Each token transaction consists of 3 atoms. Break atoms into transactions
-                for atoms in [atoms_token[chunk: chunk + 3] for chunk in range(0, len(atoms_token), 3)]:
-                    # If less than 3 atoms are involved in the transaction, these are integrity violations.
-                    # If the sum of the first two atoms is not equal to zero,
-                    # this violates the integrity of the transaction.
-                    # If after the transaction the poisoner wallet has a negative balance,
-                    # this is a violation of the integrity of the transaction.
-                    if len(atoms) < 3 or sum(atoms[:2]) != 0 or sum(atoms) < 0:
-                        return False
+
+        # No molecular hash?
+        if molecule.molecularHash is None:
+            raise MolecularHashMissingException()
+
+        # Do we even have atoms?
+        if len(molecule.atoms) < 1:
+            raise AtomsMissingException()
+
+        # No isotopes "V" unnecessary and verification
+        if len([atom for atom in molecule.atoms if 'V' == atom.isotope]) == 0:
             return True
-        return False
+
+        # Grabbing the first atom
+        # Looping through each V-isotope atom
+        amount, value, first_atom = 0, 0, molecule.atoms[0]
+
+        for index, v_atom in enumerate(molecule.atoms):
+
+            #  Not V? Next...
+            if 'V' != v_atom.isotope:
+                continue
+
+            # Making sure we're in integer land
+            value = Strings.number(v_atom.value)
+
+            # Making sure all V atoms of the same token
+            if v_atom.token != first_atom.token:
+                raise TransferMismatchedException()
+
+            # Checking non-primary atoms
+            if index > 0:
+
+                # Negative V atom in a non-primary position?
+                if value < 0:
+                    raise TransferMalformedException()
+
+                # Cannot be sending and receiving from the same address
+                if v_atom.walletAddress == first_atom.walletAddress:
+                    raise TransferToSelfException()
+
+            # Adding this Atom's value to the total sum
+            amount += value
+
+        # Does the total sum of all atoms equal the remainder atom's value? (all other atoms must add up to zero)
+        if amount != value:
+            raise TransferUnbalancedException()
+
+        # If we're provided with a senderWallet argument, we can perform additional checks
+        if sender is not None:
+            remainder = sender.balance + Strings.number(first_atom.value)
+
+            # Is there enough balance to send?
+            if remainder < 0:
+                raise TransferBalanceException()
+
+            # Does the remainder match what should be there in the source wallet, if provided?
+            if remainder != amount:
+                raise TransferRemainderException()
+        # No senderWallet, but have a remainder?
+        elif amount != 0:
+            raise TransferRemainderException()
+
+        # Looks like we passed all the tests!
+        return True
 
     @classmethod
-    def verify(cls, molecule: 'Molecule') -> bool:
+    def verify_index(cls, molecule: 'Molecule') -> bool:
+        """
+        :param molecule: Molecule
+        :return: bool
+        :raises [MolecularHashMissingException, AtomsMissingException, AtomIndexException]:
+        """
+        # No molecular hash?
+        if molecule.molecularHash is None:
+            raise MolecularHashMissingException()
+
+        # Do we even have atoms?
+        if len(molecule.atoms) < 1:
+            raise AtomsMissingException()
+
+        if len([atom for atom in molecule.atoms if atom.index is None]) != 0:
+            raise AtomIndexException()
+
+        return True
+
+    @classmethod
+    def verify(cls, molecule: 'Molecule', sender: Wallet = None) -> bool:
         """
 
         :param molecule: Molecule
+        :param sender: Wallet default None
         :return: bool
+        :raises BaseError:
         """
-        return Molecule.verify_molecular_hash(molecule) and Molecule.verify_ots(
-            molecule) and Molecule.verify_token_isotope_v(molecule)
+        return Molecule.verify_molecular_hash(molecule) and \
+               Molecule.verify_ots(molecule) and \
+               Molecule.verify_isotope_v(molecule, sender) and \
+               Molecule.verify_index(molecule)
 
     @classmethod
     def verify_molecular_hash(cls, molecule: 'Molecule') -> bool:
@@ -457,9 +724,21 @@ class Molecule(_Base):
 
         :param molecule: Molecule
         :return: bool
+        :raises [MolecularHashMissingException, AtomsMissingException, MolecularHashMismatchException]:
         """
-        return molecule.molecularHash is not None and 0 < len(
-            molecule.atoms) and molecule.molecularHash == Atom.hash_atoms(molecule.atoms)
+
+        # No molecular hash?
+        if molecule.molecularHash is None:
+            raise MolecularHashMissingException()
+
+        # Do we even have atoms?
+        if len(molecule.atoms) < 1:
+            raise AtomsMissingException()
+
+        if molecule.molecularHash != Atom.hash_atoms(molecule.atoms):
+            raise MolecularHashMismatchException()
+
+        return True
 
     @classmethod
     def verify_ots(cls, molecule: 'Molecule') -> bool:
@@ -470,46 +749,57 @@ class Molecule(_Base):
 
         :param molecule: Molecule
         :return: bool
+        :raises [MolecularHashMissingException, AtomsMissingException, SignatureMalformedException, SignatureMismatchException]:
         """
-        if molecule.molecularHash is not None and 0 < len(molecule.atoms):
-            atoms = sorted([*molecule.atoms], key=lambda item: item.position)
-            # Determine first atom
-            first_atom, normalized_hash = atoms[0], Molecule.normalize(Molecule.enumerate(molecule.molecularHash))
-            # Rebuilding OTS out of all the atoms
-            ots, wallet_address = ''.join([atom.otsFragment for atom in atoms]), first_atom.walletAddress
-            key_fragments = ''
 
-            # Wrong size? Maybe it's compressed
+        # No molecular hash?
+        if molecule.molecularHash is None:
+            raise MolecularHashMissingException()
+
+        # Do we even have atoms?
+        if len(molecule.atoms) < 1:
+            raise AtomsMissingException()
+
+        # Determine first atom
+        first_atom, normalized_hash = molecule.atoms[0], Molecule.normalize(Molecule.enumerate(molecule.molecularHash))
+        # Rebuilding OTS out of all the atoms
+        ots, wallet_address = ''.join([atom.otsFragment for atom in molecule.atoms]), first_atom.walletAddress
+        key_fragments = ''
+
+        # Wrong size? Maybe it's compressed
+        if 2048 != len(ots):
+            # Attempt decompression
+            ots = Strings.decompress(ots)
+            # Still wrong? That's a failure
             if 2048 != len(ots):
-                # Attempt decompression
-                ots = decompress(ots)
-                # Still wrong? That's a failure
-                if 2048 != len(ots):
-                    return False
+                raise SignatureMalformedException()
 
-            # Subdivide Kk into 16 segments of 256 bytes (128 characters) each
-            for index, ots_chunk in enumerate(map(''.join, zip(*[iter(ots)] * 128))):
-                working_chunk = ots_chunk
-                for _ in range(8 + normalized_hash[index]):
-                    sponge = shake()
-                    sponge.update(encode(working_chunk))
-                    working_chunk = sponge.hexdigest(64)
-                key_fragments = '%s%s' % (key_fragments, working_chunk)
+        # Subdivide Kk into 16 segments of 256 bytes (128 characters) each
+        for index, ots_chunk in enumerate(map(''.join, zip(*[iter(ots)] * 128))):
+            working_chunk = ots_chunk
 
-            # Absorb the hashed Kk into the sponge to receive the digest Dk
-            sponge = shake()
-            sponge.update(encode(key_fragments))
-            digest = sponge.hexdigest(1024)
+            for _ in range(8 + normalized_hash[index]):
+                sponge = shake()
+                sponge.update(Strings.encode(working_chunk))
+                working_chunk = sponge.hexdigest(64)
 
-            # Squeeze the sponge to retrieve a 128 byte (64 character) string that should match the sender’s
-            # wallet address
-            sponge = shake()
-            sponge.update(encode(digest))
-            address = sponge.hexdigest(32)
+            key_fragments = '%s%s' % (key_fragments, working_chunk)
 
-            return address == wallet_address
+        # Absorb the hashed Kk into the sponge to receive the digest Dk
+        sponge = shake()
+        sponge.update(Strings.encode(key_fragments))
+        digest = sponge.hexdigest(1024)
 
-        return False
+        # Squeeze the sponge to retrieve a 128 byte (64 character) string that should match the sender’s
+        # wallet address
+        sponge = shake()
+        sponge.update(Strings.encode(digest))
+        address = sponge.hexdigest(32)
+
+        if address != wallet_address:
+            raise SignatureMismatchException()
+
+        return True
 
     @classmethod
     def enumerate(cls, hash0: str) -> List[int]:
@@ -565,3 +855,14 @@ class Molecule(_Base):
                         break
 
         return hash_array
+
+    @classmethod
+    def generate_next_atom_index(cls, atoms: List[Atom]) -> int:
+        """
+        :param atoms: List[Atom]
+        :return: int
+        """
+        try:
+            return atoms[-1].index + 1
+        except IndexError:
+            return 0
