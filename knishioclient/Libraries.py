@@ -9,9 +9,8 @@ import ctypes
 
 from typing import Union, List, Dict, Any
 from numpy import array, multiply, add, mod, floor_divide
-from lzstring import LZString
 from hashlib import shake_256 as shake
-from libnacl.encode import hex_decode, hex_encode
+from libnacl.encode import hex_decode, hex_encode, base64_encode, base64_decode
 from libnacl.public import SecretKey, Box
 from libnacl import (crypto_box_SECRETKEYBYTES, crypto_scalarmult_curve25519_BYTES, crypto_box_PUBLICKEYBYTES,
                      crypto_box_NONCEBYTES, nacl, CryptError)
@@ -113,7 +112,7 @@ class Strings(object):
         :param string: str
         :return: str
         """
-        return LZString.compressToBase64(string)
+        return Strings.decode(base64_encode(hex_decode(string)))
 
     @classmethod
     def decompress(cls, string: str) -> str:
@@ -123,7 +122,7 @@ class Strings(object):
         :param string: str
         :return: str
         """
-        return LZString.decompressFromBase64(string)
+        return Strings.decode(hex_encode(base64_decode(string)))
 
     @classmethod
     def encode(cls, value: Any, code: str = 'utf-8') -> bytes:
