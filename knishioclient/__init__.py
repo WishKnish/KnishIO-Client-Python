@@ -1,7 +1,7 @@
-__version__ = '0.0.1.dev0'
+from .Client import __all__ as client_all_
 
-from .Client import Molecule, Wallet
+__version__ = '0.1.52'
 
 name = "knishioclient"
 
-__all__ = ('Molecule', 'Wallet')
+__all__ = client_all_
