@@ -15,6 +15,7 @@ __all__ = (
     'TransferRemainderException',
     'TransferToSelfException',
     'TransferUnbalancedException',
+    'MetaMissingException',
 )
 
 
@@ -146,3 +147,10 @@ class TransferUnbalancedException(BaseError):
     Class TransferUnbalancedException
     """
     _message: str = 'Token transfer atoms are unbalanced'
+
+
+class MetaMissingException(BaseError):
+    """
+    Class MetaMissingException
+    """
+    _message: str = 'Empty meta data.'

@@ -563,7 +563,7 @@ class Molecule(_Base):
 
         self.molecularHash = Atom.hash_atoms(self.atoms)
         first_atom, normalized_hash, signature_fragments = (self.atoms[0],
-                                                            Molecule.normalize(Molecule.enumerate(self.molecularHash)),
+                                                            CheckMolecule.normalized_hash(self.molecularHash),
                                                             '')
         for idx, chunk in enumerate(
                 Strings.chunk_substr(Wallet.generate_key(secret, first_atom.token, first_atom.position), 128)):
@@ -608,103 +608,12 @@ class Molecule(_Base):
         """
         return Molecule.generate_next_atom_index(self.atoms)
 
-    @classmethod
-    def verify_isotope_v(cls, molecule: 'Molecule', sender: Wallet = None) -> bool:
+    def check(self, sender: Wallet = None) -> bool:
         """
-        Verification of V-isotope molecules checks to make sure that:
-        1. we're sending and receiving the same token
-        2. we're only subtracting on the first atom
-
-        :param molecule: Molecule
         :param sender: Wallet default None
         :return: bool
-        :raises [MolecularHashMissingException, AtomsMissingException, TransferMismatchedException, TransferToSelfException, TransferUnbalancedException, TransferBalanceException, TransferRemainderException]:
         """
-
-        # No molecular hash?
-        if molecule.molecularHash is None:
-            raise MolecularHashMissingException()
-
-        # Do we even have atoms?
-        if len(molecule.atoms) < 1:
-            raise AtomsMissingException()
-
-        # No isotopes "V" unnecessary and verification
-        if len([atom for atom in molecule.atoms if 'V' == atom.isotope]) == 0:
-            return True
-
-        # Grabbing the first atom
-        # Looping through each V-isotope atom
-        amount, value, first_atom = 0, 0, molecule.atoms[0]
-
-        for index, v_atom in enumerate(molecule.atoms):
-
-            #  Not V? Next...
-            if 'V' != v_atom.isotope:
-                continue
-
-            # Making sure we're in integer land
-            value = Strings.number(v_atom.value)
-
-            # Making sure all V atoms of the same token
-            if v_atom.token != first_atom.token:
-                raise TransferMismatchedException()
-
-            # Checking non-primary atoms
-            if index > 0:
-
-                # Negative V atom in a non-primary position?
-                if value < 0:
-                    raise TransferMalformedException()
-
-                # Cannot be sending and receiving from the same address
-                if v_atom.walletAddress == first_atom.walletAddress:
-                    raise TransferToSelfException()
-
-            # Adding this Atom's value to the total sum
-            amount += value
-
-        # Does the total sum of all atoms equal the remainder atom's value? (all other atoms must add up to zero)
-        if amount != value:
-            raise TransferUnbalancedException()
-
-        # If we're provided with a senderWallet argument, we can perform additional checks
-        if sender is not None:
-            remainder = sender.balance + Strings.number(first_atom.value)
-
-            # Is there enough balance to send?
-            if remainder < 0:
-                raise TransferBalanceException()
-
-            # Does the remainder match what should be there in the source wallet, if provided?
-            if remainder != amount:
-                raise TransferRemainderException()
-        # No senderWallet, but have a remainder?
-        elif amount != 0:
-            raise TransferRemainderException()
-
-        # Looks like we passed all the tests!
-        return True
-
-    @classmethod
-    def verify_index(cls, molecule: 'Molecule') -> bool:
-        """
-        :param molecule: Molecule
-        :return: bool
-        :raises [MolecularHashMissingException, AtomsMissingException, AtomIndexException]:
-        """
-        # No molecular hash?
-        if molecule.molecularHash is None:
-            raise MolecularHashMissingException()
-
-        # Do we even have atoms?
-        if len(molecule.atoms) < 1:
-            raise AtomsMissingException()
-
-        if len([atom for atom in molecule.atoms if atom.index is None]) != 0:
-            raise AtomIndexException()
-
-        return True
+        return Molecule.verify(self, sender)
 
     @classmethod
     def verify(cls, molecule: 'Molecule', sender: Wallet = None) -> bool:
@@ -715,149 +624,11 @@ class Molecule(_Base):
         :return: bool
         :raises BaseError:
         """
-        return Molecule.verify_molecular_hash(molecule) and \
-               Molecule.verify_ots(molecule) and \
-               Molecule.verify_isotope_v(molecule, sender) and \
-               Molecule.verify_index(molecule)
-
-    @classmethod
-    def verify_molecular_hash(cls, molecule: 'Molecule') -> bool:
-        """
-        Verifies if the hash of all the atoms matches the molecular hash to ensure content has not been messed with
-
-        :param molecule: Molecule
-        :return: bool
-        :raises [MolecularHashMissingException, AtomsMissingException, MolecularHashMismatchException]:
-        """
-
-        # No molecular hash?
-        if molecule.molecularHash is None:
-            raise MolecularHashMissingException()
-
-        # Do we even have atoms?
-        if len(molecule.atoms) < 1:
-            raise AtomsMissingException()
-
-        if molecule.molecularHash != Atom.hash_atoms(molecule.atoms):
-            raise MolecularHashMismatchException()
-
-        return True
-
-    @classmethod
-    def verify_ots(cls, molecule: 'Molecule') -> bool:
-        """
-        This section describes the function DecodeOtsFragments(Om, Hm), which is used to transform a collection
-        of signature fragments Om and a molecular hash Hm into a single-use wallet address to be matched against
-        the sender’s address.
-
-        :param molecule: Molecule
-        :return: bool
-        :raises [MolecularHashMissingException, AtomsMissingException, SignatureMalformedException, SignatureMismatchException]:
-        """
-
-        # No molecular hash?
-        if molecule.molecularHash is None:
-            raise MolecularHashMissingException()
-
-        # Do we even have atoms?
-        if len(molecule.atoms) < 1:
-            raise AtomsMissingException()
-
-        # Determine first atom
-        first_atom, normalized_hash = molecule.atoms[0], Molecule.normalize(Molecule.enumerate(molecule.molecularHash))
-        # Rebuilding OTS out of all the atoms
-        ots, wallet_address = ''.join([atom.otsFragment for atom in molecule.atoms]), first_atom.walletAddress
-        key_fragments = ''
-
-        # Wrong size? Maybe it's compressed
-        if 2048 != len(ots):
-            # Attempt decompression
-            ots = Strings.base64_to_hex(ots)
-            # Still wrong? That's a failure
-            if 2048 != len(ots):
-                raise SignatureMalformedException()
-
-        # Subdivide Kk into 16 segments of 256 bytes (128 characters) each
-        for index, ots_chunk in enumerate(map(''.join, zip(*[iter(ots)] * 128))):
-            working_chunk = ots_chunk
-
-            for _ in range(8 + normalized_hash[index]):
-                sponge = shake()
-                sponge.update(Strings.encode(working_chunk))
-                working_chunk = sponge.hexdigest(64)
-
-            key_fragments = '%s%s' % (key_fragments, working_chunk)
-
-        # Absorb the hashed Kk into the sponge to receive the digest Dk
-        sponge = shake()
-        sponge.update(Strings.encode(key_fragments))
-        digest = sponge.hexdigest(1024)
-
-        # Squeeze the sponge to retrieve a 128 byte (64 character) string that should match the sender’s
-        # wallet address
-        sponge = shake()
-        sponge.update(Strings.encode(digest))
-        address = sponge.hexdigest(32)
-
-        if address != wallet_address:
-            raise SignatureMismatchException()
-
-        return True
-
-    @classmethod
-    def enumerate(cls, hash0: str) -> List[int]:
-        """
-        This algorithm describes the function EnumerateMolecule(Hm), designed to accept a pseudo-hexadecimal string Hm,
-        and output a collection of decimals representing each character.
-        Molecular hash Hm is presented as a 128 byte (64-character) pseudo-hexadecimal string featuring numbers
-        from 0 to 9 and characters from A to F - a total of 15 unique symbols.
-        To ensure that Hm has an even number of symbols, convert it to Base 17 (adding G as a possible symbol).
-        Map each symbol to integer values as follows:
-        0   1    2   3   4   5   6   7   8  9  A   B   C   D   E   F   G
-        -8  -7  -6  -5  -4  -3  -2  -1  0   1   2   3   4   5   6   7   8
-
-        :param hash0: str
-        :return: List[int]
-        """
-        mapped = {
-            '0': -8, '1': -7, '2': -6, '3': -5, '4': -4, '5': -3, '6': -2, '7': -1,
-            '8': 0, '9': 1, 'a': 2, 'b': 3, 'c': 4, 'd': 5, 'e': 6, 'f': 7, 'g': 8,
-        }
-        return [mapped[symbol.lower()] for symbol in hash0 if mapped.get(symbol.lower(), None) is not None]
-
-    @classmethod
-    def normalize(cls, mapped_hash_array: List[int]) -> List[int]:
-        """
-        Normalize Hm to ensure that the total sum of all symbols is exactly zero. This ensures that exactly 50% of
-        the WOTS+ key is leaked with each usage, ensuring predictable key safety:
-        The sum of each symbol within Hm shall be presented by m
-        While m0 iterate across that set’s integers as Im:
-        If m0 and Im>-8 , let Im=Im-1
-        If m<0 and Im<8 , let Im=Im+1
-        If m=0, stop the iteration
-
-        :param mapped_hash_array: List[int]
-        :return: List[int]
-        """
-        hash_array = mapped_hash_array.copy()
-        total = sum(hash_array)
-        total_condition = total < 0
-
-        while total < 0 or total > 0:
-            for key, value in enumerate(hash_array):
-                condition = value < 8 if total_condition else value > -8
-
-                if condition:
-                    if total_condition:
-                        hash_array[key] += 1
-                        total += 1
-                    else:
-                        hash_array[key] -= 1
-                        total -= 1
-                    if 0 == total:
-                        break
-
-        return hash_array
+        return CheckMolecule.molecular_hash(molecule) and \
+               CheckMolecule.ots(molecule) and \
+               CheckMolecule.isotope_m(molecule) and \
+               CheckMolecule.isotope_v(molecule, sender) and \
+               CheckMolecule.index(molecule)
 
     @classmethod
     def generate_next_atom_index(cls, atoms: List[Atom]) -> int:
