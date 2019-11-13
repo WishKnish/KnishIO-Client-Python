@@ -473,6 +473,43 @@ class Molecule(_Base):
 
         return self
 
+    def init_identifier_creation(self, source_wallet: Wallet, source: str, type: str, code: str) -> 'Molecule':
+        """
+        Initialize a C-type molecule to issue a new type of identifier
+
+        :param source_wallet: Wallet
+        :param source: str
+        :param type: str
+        :param code: str
+        :return: self
+        """
+
+        self.molecularHash = None
+
+        source_hash = source.strip()
+
+        self.atoms.append(
+            Atom(
+                source_wallet.position,
+                source_wallet.address,
+                'C',
+                source_wallet.token,
+                None,
+                'identifier',
+                type,
+                [
+                    {'key': 'code', 'value': code},
+                    {'key': 'hash', 'value': Crypto.generate_bundle_hash(source_hash)}
+                ],
+                None,
+                self.generate_index()
+            )
+        )
+
+        self.atoms = Atom.sort_atoms(self.atoms)
+
+        return self
+
     def init_token_creation(self, source: Wallet, recipient: Wallet, amount: Union[int, float],
                             token_meta: Union[List, Dict]) -> 'Molecule':
         """
