@@ -16,6 +16,8 @@ __all__ = (
     'TransferToSelfException',
     'TransferUnbalancedException',
     'MetaMissingException',
+    'NegativeMeaningException',
+    'WrongTokenTypeException',
 )
 
 
@@ -154,3 +156,17 @@ class MetaMissingException(BaseError):
     Class MetaMissingException
     """
     _message: str = 'Empty meta data.'
+
+
+class NegativeMeaningException(BaseError):
+    """
+    Class NegativeMeaningException
+    """
+    _message: str = 'Negative meaning.'
+
+
+class WrongTokenTypeException(BaseError):
+    """
+    Class WrongTokenTypeException
+    """
+    _message: str = 'Wrong type of token for this isotope'

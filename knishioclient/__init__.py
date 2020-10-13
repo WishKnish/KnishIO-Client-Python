@@ -1,7 +1,14 @@
-from .Client import __all__ as client_all_
+# -*- coding: utf-8 -*-
+
+from .models import *
 
 __version__ = '0.1.52'
 
 name = "knishioclient"
 
-__all__ = client_all_
+__all__ = {
+    'Meta',
+    'Atom',
+    'Wallet',
+    'Molecule',
+}
