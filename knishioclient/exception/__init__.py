@@ -18,6 +18,8 @@ __all__ = (
     'MetaMissingException',
     'NegativeMeaningException',
     'WrongTokenTypeException',
+    'UnauthenticatedException',
+    'CodeException',
 )
 
 
@@ -170,3 +172,17 @@ class WrongTokenTypeException(BaseError):
     Class WrongTokenTypeException
     """
     _message: str = 'Wrong type of token for this isotope'
+
+
+class UnauthenticatedException(BaseError):
+    """
+    Class UnauthenticatedException
+    """
+    _message: str = 'Unauthenticated.'
+
+
+class CodeException(BaseError):
+    """
+        Class CodeException
+        """
+    _message: str = 'Code exception'

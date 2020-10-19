@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from .models import *
+from .client import KnishIOClient
 
 __version__ = '0.1.52'
 
@@ -11,4 +12,5 @@ __all__ = {
     'Atom',
     'Wallet',
     'Molecule',
+    'KnishIOClient',
 }

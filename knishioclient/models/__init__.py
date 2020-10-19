@@ -21,8 +21,8 @@ _Metas = Union[List[Dict[str, Union[str, int, float]]], Dict[str, Union[str, int
 _StrOrNone = Union[str, None]
 
 
-class _Coder(JSONEncoder):
-    """ class _Coder """
+class Coder(JSONEncoder):
+    """ class Coder """
 
     def default(self, value: Any) -> Any:
         """
@@ -87,7 +87,7 @@ class _Base(object):
         """
         :return: str
         """
-        return _Coder().encode(self)
+        return Coder().encode(self)
 
 
 class Meta(_Base):
@@ -559,7 +559,7 @@ class Molecule(MoleculeStructure):
         :param remainder_wallet:
         :param cell_slug:
         """
-        super().__init__(cell_slug)
+        super(Molecule, self).__init__(cell_slug)
 
         self.__secret = secret
         self.sourceWallet = source_wallet
@@ -652,7 +652,7 @@ class Molecule(MoleculeStructure):
                     atoms = []
 
                     for item in stream[prop]:
-                        atom = Atom.json_to_object(_Coder().encode(item))
+                        atom = Atom.json_to_object(Coder().encode(item))
 
                         for key in ['position', 'walletAddress', 'isotope']:
                             if getattr(atom, key) in ['']:
