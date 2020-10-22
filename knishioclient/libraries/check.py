@@ -100,7 +100,7 @@ def isotope_i(molecule: 'Molecule') -> bool:
     for atom in isotope_filter('I', molecule.atoms):
         if atom.token not in 'USER':
             raise WrongTokenTypeException('Invalid token name for %s isotope' % atom.isotope)
-        if atom.index != 0:
+        if atom.index == 0:
             raise AtomIndexException('Invalid isotope "%s" index' % atom.isotope)
     return True
 
@@ -198,7 +198,7 @@ def isotope_v(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
 
     # If we're provided with a senderWallet argument, we can perform additional checks
     if sender is not None:
-        remainder = sender.balance + strings.number(first_atom.value)
+        remainder = strings.number(sender.balance) + strings.number(first_atom.value)
 
         # Is there enough balance to send?
         if decimal.cmp(remainder, 0) < 0:

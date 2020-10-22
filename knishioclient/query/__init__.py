@@ -4,9 +4,14 @@ from knishioclient.response import (
     ResponseBalance,
     ResponseContinuId,
     ResponseMolecule,
-    ResponseAuthentication
+    ResponseAuthentication,
+    ResponseIdentifier,
+    ResponseMetaType,
+    ResponseTokenCreate,
+    ResponseWalletBundle,
+    ResponseWalletList,
 )
-from knishioclient.models import Molecule, Coder
+from knishioclient.models import Molecule, Coder, Wallet
 
 
 class Query(object):
@@ -169,5 +174,162 @@ class QueryIdentifierCreate(QueryMoleculePropose):
 class QueryLinkIdentifierMutation(Query):
     def __init__(self, client: 'HttpClient', query: str = None):
         super(QueryLinkIdentifierMutation, self).__init__(client, query)
+        self.default_query = 'mutation( $bundle: String!, $type: String!, $content: String! ) { LinkIdentifier( bundle: $bundle, type: $type, content: $content ) @fields }'
+        self.fields = {
+            'type': None,
+            'bundle': None,
+            'content': None,
+            'set': None,
+            'message': None,
+        }
+        self.query = query or self.default_query
+
+    def create_response(self, response):
+        return ResponseIdentifier(self, response)
 
 
+class QueryMetaType(Query):
+    def __init__(self, client: 'HttpClient', query: str = None):
+        super(QueryMetaType, self).__init__(client, query)
+        self.default_query = 'query( $metaType: String, $metaTypes: [ String! ], $metaId: String, $metaIds: [ String! ], $key: String, $keys: [ String! ], $value: String, $values: [ String! ], $count: String ) { MetaType( metaType: $metaType, metaTypes: $metaTypes, metaId: $metaId, metaIds: $metaIds, key: $key, keys: $keys, value: $value, values: $values, count: $count ) @fields }'
+        self.fields = {
+            'metaType': None,
+            'instances': {
+                'metaType': None,
+                'metaId': None,
+                'createdAt': None,
+                'metas': {
+                    'molecularHash': None,
+                    'position': None,
+                    'metaType': None,
+                    'metaId': None,
+                    'key': None,
+                    'value': None,
+                    'createdAt': None,
+                },
+                'atoms': {
+                    'molecularHash': None,
+                    'position': None,
+                    'isotope': None,
+                    'walletAddress': None,
+                    'tokenSlug': None,
+                    'batchId': None,
+                    'value': None,
+                    'index': None,
+                    'metaType': None,
+                    'metaId': None,
+                    'otsFragment': None,
+                    'createdAt': None,
+                },
+                'molecules': {
+                    'molecularHash': None,
+                    'cellSlug': None,
+                    'bundleHash': None,
+                    'status': None,
+                    'height': None,
+                    'createdAt': None,
+                    'receivedAt': None,
+                    'processedAt': None,
+                    'broadcastedAt': None,
+                },
+            },
+            'metas': {
+                'molecularHash': None,
+                'position': None,
+                'metaType': None,
+                'metaId': None,
+                'key': None,
+                'value': None,
+                'createdAt': None,
+            },
+            'createdAt': None,
+        }
+
+        self.query = query or self.default_query
+
+    def create_response(self, response):
+        return ResponseMetaType(self, response)
+
+
+class QueryShadowWalletClaim(QueryMoleculePropose):
+    def fill_molecule(self, token, shadow_wallets: list):
+        self.molecule().init_shadow_wallet_claim_atom(
+            token,
+            [Wallet.create(self.molecule().secret(), token, shadow_wallet.batchId) for shadow_wallet in shadow_wallets]
+        )
+        self.molecule().sign()
+        self.molecule().check()
+
+
+class QueryTokenCreate(QueryMoleculePropose):
+    def fill_molecule(self, recipient_wallet: Wallet, amount, metas=None):
+        data_metas = metas or {}
+        self.molecule().init_token_creation(recipient_wallet, amount, data_metas)
+        self.molecule().sign()
+        self.molecule().check()
+
+    def create_response(self, response):
+        return ResponseTokenCreate(self, response)
+
+
+class QueryTokenReceive(QueryMoleculePropose):
+    def fill_molecule(self, token, value, meta_type, meta_id, metas=None):
+        data_metas = metas or {}
+        self.molecule().init_token_transfer(token, value, meta_type, meta_id, data_metas)
+        self.molecule().sign()
+        self.molecule().check()
+
+
+class QueryTokenTransfer(QueryMoleculePropose):
+    def fill_molecule(self, to_wallet, amount):
+        self.molecule().init_value(to_wallet, amount)
+        self.molecule().sign()
+        self.molecule().check(self.molecule().source_wallet())
+
+
+class QueryWalletBundle(Query):
+    def __init__(self, client: 'HttpClient', query: str = None):
+        super(QueryWalletBundle, self).__init__(client, query)
+        self.default_query = 'query( $bundleHash: String, $bundleHashes: [ String! ], $key: String, $keys: [ String! ], $value: String, $values: [ String! ], $keys_values: [ MetaInput ], $latest: Boolean, $limit: Int, $skip: Int, $order: String ) { WalletBundle( bundleHash: $bundleHash, bundleHashes: $bundleHashes, key: $key, keys: $keys, value: $value, values: $values, keys_values: $keys_values, latest: $latest, limit: $limit, skip: $skip, order: $order ) @fields }'
+        self.fields = {
+            'bundleHash': None,
+            'slug': None,
+            'metas': {
+                'molecularHash': None,
+                'position': None,
+                'metaType': None,
+                'metaId': None,
+                'key': None,
+                'value': None,
+                'createdAt': None,
+            },
+            # 'molecules',
+            # 'wallets',
+            'createdAt': None,
+        }
+
+        self.query = query or self.default_query
+
+    def create_response(self, response):
+        return ResponseWalletBundle(self, response)
+
+
+class QueryWalletList(Query):
+    def __init__(self, client: 'HttpClient', query: str = None):
+        super(QueryWalletList, self).__init__(client, query)
+        self.default_query = 'query( $address: String, $bundleHash: String, $token: String, $position: String ) { Wallet( address: $address, bundleHash: $bundleHash, token: $token, position: $position ) @fields }'
+        self.fields = {
+            'address': None,
+            'bundleHash': None,
+            'tokenSlug': None,
+            'batchId': None,
+            'position': None,
+            'amount': None,
+            'characters': None,
+            'pubkey': None,
+            'createdAt': None,
+        }
+        self.query = query or self.default_query
+
+    def create_response(self, response):
+        return ResponseWalletList(self, response)

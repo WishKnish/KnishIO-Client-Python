@@ -2,11 +2,29 @@
 
 import aiohttp
 import asyncio
-from knishioclient.exception import UnauthenticatedException, CodeException
-from knishioclient.query import QueryContinuId, QueryMoleculePropose, QueryBalance, QueryAuthentication, Query
-from knishioclient.models import Wallet, Molecule
+from knishioclient.exception import (
+    UnauthenticatedException,
+    CodeException,
+    WalletShadowException,
+    TransferBalanceException
+)
+from knishioclient.query import (
+    QueryContinuId,
+    QueryMoleculePropose,
+    QueryBalance,
+    QueryAuthentication,
+    Query,
+    QueryTokenCreate,
+    QueryTokenReceive,
+    QueryIdentifierCreate,
+    QueryWalletList,
+    QueryShadowWalletClaim,
+    QueryTokenTransfer,
+)
+from knishioclient.models import Wallet, Molecule, WalletShadow
 from knishioclient.libraries.array import array_get
 from knishioclient.libraries.crypto import generate_bundle_hash
+from knishioclient.libraries import decimal, strings
 
 
 class HttpClient(object):
@@ -149,3 +167,77 @@ class KnishIOClient(object):
             return UnauthenticatedException(response.reason())
 
         return response
+
+    def create_token(self, token, amount, metas=None):
+        data_metas = metas or {}
+        recipient_wallet = Wallet(self.secret(), token)
+
+        if array_get(data_metas, 'fungibility') in 'stackable':
+            recipient_wallet.batchId = Wallet.generate_batch_id()
+
+        query = self.create_molecule_query(QueryTokenCreate)
+        query.fill_molecule(recipient_wallet, amount, data_metas)
+
+        return query.execute()
+
+    def receive_token(self, token, value, to, metas=None):
+        data_metas = metas or {}
+
+        if isinstance(to, str) or isinstance(to, bytes):
+            if Wallet.is_bundle_hash(to):
+                meta_type = 'walletbundle'
+                meta_id = to
+            else:
+                to = Wallet.create(to, token)
+        if isinstance(to, Wallet):
+            meta_type = 'wallet'
+            data_metas.update({
+                'position': to.position,
+                'bundle': to.bundle,
+            })
+            meta_id = to.address
+
+        query = self.create_molecule_query(QueryTokenReceive)
+        query.fill_molecule(token, value, meta_type, meta_id, data_metas)
+
+        return query.execute()
+
+    def create_identifier(self, type0, contact, code):
+        query = self.create_molecule_query(QueryIdentifierCreate)
+        query.fill_molecule(type0, contact, code)
+
+        return query.execute()
+
+    def get_shadow_wallets(self, token):
+        query = self.create_query(QueryWalletList)
+        response = query.execute({
+            'bundleHash': generate_bundle_hash(self.secret()),
+            'token': token
+        })
+        shadow_wallets = response.payload()
+
+        if shadow_wallets is None:
+            raise WalletShadowException()
+        if not all((isinstance(shadow_wallet, WalletShadow) for shadow_wallet in shadow_wallets)):
+            raise WalletShadowException()
+        return shadow_wallets
+
+    def claim_shadow_wallet(self, token, molecule: Molecule = None):
+        shadow_wallets = self.get_shadow_wallets(token)
+        query = self.create_molecule_query(QueryShadowWalletClaim)
+        query.fill_molecule(token, shadow_wallets)
+        return query.execute()
+
+    def transfer_token(self, to, token, amount):
+        from_wallet = self.get_balance(self.secret(), token).payload()
+        if from_wallet is None or decimal.cmp(strings.number(from_wallet.balance), amount) < 0:
+            raise TransferBalanceException('The transfer amount cannot be greater than the sender\'s balance')
+        to_wallet = to if isinstance(to, Wallet) else self.get_balance(to, token).payload()
+        if to_wallet is None:
+            to_wallet = Wallet.create(to, token)
+        to_wallet.init_batch_id(from_wallet, amount)
+        self.__remainder_wallet = Wallet.create(self.secret(), token, to_wallet.batchId, from_wallet.characters)
+        molecule = self.create_molecule(None, from_wallet, self.get_remainder_wallet())
+        query = self.create_molecule_query(QueryTokenTransfer, molecule)
+        query.fill_molecule(to_wallet, amount)
+        return query.execute()

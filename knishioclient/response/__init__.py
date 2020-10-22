@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from json import loads
+from json.decoder import JSONDecodeError
 from knishioclient.exception import *
 from knishioclient.models import Wallet, WalletShadow, MoleculeStructure
 from knishioclient.libraries.array import array_has, array_get
@@ -11,7 +12,6 @@ class Response(object):
         self.origin_response = json
         self.__response = json
         self.dataKey = None
-
         if array_has(self.__response, 'exception'):
             message = self.__response['message']
             if 'unauthenticated' in message.lower():
@@ -110,7 +110,12 @@ class ResponseMolecule(Response):
 
     def init(self):
         payload_json = array_get(self.data(), 'payload')
-        self.__payload = payload_json if payload_json is None else loads(payload_json)
+        self.__payload = None
+        if payload_json is not None:
+            try:
+                self.__payload = loads(payload_json)
+            except JSONDecodeError:
+                self.__payload = payload_json
 
     def molecule(self):
         data = self.data()
@@ -156,3 +161,19 @@ class ResponseIdentifier(Response):
 
     def message(self):
         return array_get(self.data(), 'message')
+
+
+class ResponseMetaType(Response):
+    def __init__(self, query, json):
+        super(ResponseMetaType, self).__init__(query, json)
+        self.dataKey = 'data.MetaType'
+
+
+class ResponseTokenCreate(ResponseMolecule):
+    pass
+
+
+class ResponseWalletBundle(Response):
+    def __init__(self, query, json):
+        super(ResponseWalletBundle, self).__init__(query, json)
+        self.dataKey = 'data.WalletBundle'

@@ -15,6 +15,7 @@ __all__ = (
     'Atom',
     'Wallet',
     'Molecule',
+    'Coder',
 )
 
 _Metas = Union[List[Dict[str, Union[str, int, float]]], Dict[str, Union[str, int, float]]]
