@@ -22,7 +22,7 @@ from knishioclient.query import (
     QueryTokenTransfer,
 )
 from knishioclient.models import Wallet, Molecule, WalletShadow
-from knishioclient.libraries.array import array_get
+from knishioclient.libraries.array import array_get, get_signed_atom
 from knishioclient.libraries.crypto import generate_bundle_hash
 from knishioclient.libraries import decimal, strings
 
@@ -71,6 +71,8 @@ class KnishIOClient(object):
         self.__secret = None
         self.__last_molecule_query = None
         self.__remainder_wallet = None
+        self.__authorization_wallet = None
+        self.__server_key = None
 
     def url(self):
         self.__client.get_url()
@@ -113,7 +115,7 @@ class KnishIOClient(object):
 
     def create_molecule_query(self, aclass: Query, molecule: Molecule = None) -> Query:
         molecule = molecule or self.create_molecule()
-        query = aclass(self.client(), molecule)
+        query = aclass(self, molecule)
 
         if not isinstance(query, QueryMoleculePropose):
             raise CodeException(
@@ -124,7 +126,7 @@ class KnishIOClient(object):
         return query
 
     def create_query(self, aclass: Query) -> Query:
-        return aclass(self.client())
+        return aclass(self)
 
     def secret(self):
         if self.__secret is None:
@@ -162,7 +164,9 @@ class KnishIOClient(object):
         response = query.execute()
 
         if response.success():
+            self.__authorization_wallet = self.extracting_authorization_wallet(query.molecule())
             self.client().set_auth_token(response.token())
+            self.__server_key = response.pubkey()
         else:
             return UnauthenticatedException(response.reason())
 
@@ -241,3 +245,13 @@ class KnishIOClient(object):
         query = self.create_molecule_query(QueryTokenTransfer, molecule)
         query.fill_molecule(to_wallet, amount)
         return query.execute()
+
+    def get_authorization_wallet(self):
+        return self.__authorization_wallet
+
+    def get_server_key(self):
+        return self.__server_key
+
+    def extracting_authorization_wallet(self, molecule: Molecule):
+        atom = get_signed_atom(molecule)
+        return Wallet(self.secret(), atom.token, atom.position) if atom is not None else None

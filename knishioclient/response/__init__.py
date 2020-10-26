@@ -18,6 +18,17 @@ class Response(object):
                 raise UnauthenticatedException(message)
             raise InvalidResponseException(message)
 
+        if type(query).__name__ not in 'QueryAuthentication':
+            wallet = query.get_knish_io_client().get_authorization_wallet()
+
+            if wallet is None:
+                raise UnauthenticatedException()
+
+            self.__response = wallet.decrypt_my_message(self.__response)
+
+            if self.__response is None:
+                raise DecryptException()
+
         self.init()
 
     def init(self):
@@ -71,6 +82,7 @@ class ResponseWalletList(Response):
             wallet.batchId = data['batchId']
             wallet.characters = data['characters']
             wallet.pubkey = data['pubkey']
+
         wallet.balance = data['amount']
 
         return wallet
@@ -149,6 +161,9 @@ class ResponseAuthentication(ResponseMolecule):
 
     def time(self):
         return self.__payload_key('time')
+
+    def pubkey(self):
+        return self.__payload_key('pubkey')
 
 
 class ResponseIdentifier(Response):

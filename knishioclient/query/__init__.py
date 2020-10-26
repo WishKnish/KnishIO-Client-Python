@@ -12,23 +12,29 @@ from knishioclient.response import (
     ResponseWalletList,
 )
 from knishioclient.models import Molecule, Coder, Wallet
+from knishioclient.exception import UnauthenticatedException
 
 
 class Query(object):
-    client: 'HttpClient'
     query: str
     default_query: str
     fields: dict
     __variables: dict
 
-    def __init__(self, client: 'HttpClient', query: str = None):
+    def __init__(self, knish_io_client: 'KnishIOClient', query: str = None):
         self.__variables = {}
         self.fields = {}
         self.default_query = ''
-        self.client = client
         self.query = query or self.default_query
         self.__request = None
         self.__response = None
+        self.knishIO = knish_io_client
+
+    def get_knish_io_client(self):
+        return self.knishIO
+
+    def client(self):
+        return self.knishIO.client()
 
     def request(self):
         return self.__request
@@ -38,7 +44,7 @@ class Query(object):
 
     def execute(self, variables: dict = None, fields: dict = None):
         self.__request = self.create_request(variables, fields)
-        response = self.client.send(self.__request)
+        response = self.client().send(self.__request)
         self.__response = self.create_response_raw(response)
         return self.response()
 
@@ -50,11 +56,7 @@ class Query(object):
 
     def create_request(self, variables: dict = None, fields: dict = None):
         self.__variables = self.compiled_variables(variables)
-
-        return Coder().encode({
-            'query': self.compiled_query(fields),
-            'variables': self.variables(),
-        })
+        return Coder().encode(self.get_request_body(fields, self.variables()))
 
     def compiled_variables(self, variables: dict = None):
         return variables or {}
@@ -71,15 +73,32 @@ class Query(object):
         )
 
     def url(self):
-        return self.client.get_url()
+        return self.knishIO.url()
 
     def variables(self):
         return self.__variables
 
+    def get_request_body(self, fields, variables=None):
+        target = {
+            'query': self.compiled_query(fields),
+            'variables': variables,
+        }
+
+        if isinstance(self, QueryAuthentication):
+            return target
+
+        wallet = self.knishIO.get_authorization_wallet()
+        server_key = self.knishIO.get_server_key()
+
+        if None not in [wallet, server_key]:
+            return wallet.encrypt_my_message(target, server_key)
+
+        raise UnauthenticatedException('Unauthorized query')
+
 
 class QueryBalance(Query):
-    def __init__(self, client: 'HttpClient', query: str = None):
-        super(QueryBalance, self).__init__(client, query)
+    def __init__(self, knish_io_client: 'KnishIOClient', query: str = None):
+        super(QueryBalance, self).__init__(knish_io_client, query)
         self.default_query = 'query( $address: String, $bundleHash: String, $token: String, $position: String ) { Balance( address: $address, bundleHash: $bundleHash, token: $token, position: $position ) @fields }'
         self.fields = {
             'address': None,
@@ -99,8 +118,8 @@ class QueryBalance(Query):
 
 
 class QueryContinuId(Query):
-    def __init__(self, client: 'HttpClient', query: str = None):
-        super(QueryContinuId, self).__init__(client, query)
+    def __init__(self, knish_io_client: 'KnishIOClient', query: str = None):
+        super(QueryContinuId, self).__init__(knish_io_client, query)
         self.default_query = 'query ($bundle: String!) { ContinuId(bundle: $bundle) @fields }'
         self.fields = {
             'address': None,
@@ -120,8 +139,8 @@ class QueryContinuId(Query):
 
 
 class QueryMoleculePropose(Query):
-    def __init__(self, client: 'HttpClient', molecule: Molecule, query: str = None):
-        super(QueryMoleculePropose, self).__init__(client, query)
+    def __init__(self, knish_io_client: 'KnishIOClient', molecule: Molecule, query: str = None):
+        super(QueryMoleculePropose, self).__init__(knish_io_client, query)
         self.default_query = 'mutation( $molecule: MoleculeInput! ) { ProposeMolecule( molecule: $molecule ) @fields }'
         self.fields = {
             'molecularHash': None,
@@ -172,8 +191,8 @@ class QueryIdentifierCreate(QueryMoleculePropose):
 
 
 class QueryLinkIdentifierMutation(Query):
-    def __init__(self, client: 'HttpClient', query: str = None):
-        super(QueryLinkIdentifierMutation, self).__init__(client, query)
+    def __init__(self, knish_io_client: 'KnishIOClient', query: str = None):
+        super(QueryLinkIdentifierMutation, self).__init__(knish_io_client, query)
         self.default_query = 'mutation( $bundle: String!, $type: String!, $content: String! ) { LinkIdentifier( bundle: $bundle, type: $type, content: $content ) @fields }'
         self.fields = {
             'type': None,
@@ -189,8 +208,8 @@ class QueryLinkIdentifierMutation(Query):
 
 
 class QueryMetaType(Query):
-    def __init__(self, client: 'HttpClient', query: str = None):
-        super(QueryMetaType, self).__init__(client, query)
+    def __init__(self, knish_io_client: 'KnishIOClient', query: str = None):
+        super(QueryMetaType, self).__init__(knish_io_client, query)
         self.default_query = 'query( $metaType: String, $metaTypes: [ String! ], $metaId: String, $metaIds: [ String! ], $key: String, $keys: [ String! ], $value: String, $values: [ String! ], $count: String ) { MetaType( metaType: $metaType, metaTypes: $metaTypes, metaId: $metaId, metaIds: $metaIds, key: $key, keys: $keys, value: $value, values: $values, count: $count ) @fields }'
         self.fields = {
             'metaType': None,
@@ -288,8 +307,8 @@ class QueryTokenTransfer(QueryMoleculePropose):
 
 
 class QueryWalletBundle(Query):
-    def __init__(self, client: 'HttpClient', query: str = None):
-        super(QueryWalletBundle, self).__init__(client, query)
+    def __init__(self, knish_io_client: 'KnishIOClient', query: str = None):
+        super(QueryWalletBundle, self).__init__(knish_io_client, query)
         self.default_query = 'query( $bundleHash: String, $bundleHashes: [ String! ], $key: String, $keys: [ String! ], $value: String, $values: [ String! ], $keys_values: [ MetaInput ], $latest: Boolean, $limit: Int, $skip: Int, $order: String ) { WalletBundle( bundleHash: $bundleHash, bundleHashes: $bundleHashes, key: $key, keys: $keys, value: $value, values: $values, keys_values: $keys_values, latest: $latest, limit: $limit, skip: $skip, order: $order ) @fields }'
         self.fields = {
             'bundleHash': None,
@@ -315,8 +334,8 @@ class QueryWalletBundle(Query):
 
 
 class QueryWalletList(Query):
-    def __init__(self, client: 'HttpClient', query: str = None):
-        super(QueryWalletList, self).__init__(client, query)
+    def __init__(self, knish_io_client: 'KnishIOClient', query: str = None):
+        super(QueryWalletList, self).__init__(knish_io_client, query)
         self.default_query = 'query( $address: String, $bundleHash: String, $token: String, $position: String ) { Wallet( address: $address, bundleHash: $bundleHash, token: $token, position: $position ) @fields }'
         self.fields = {
             'address': None,

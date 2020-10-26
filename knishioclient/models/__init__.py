@@ -413,9 +413,7 @@ class Wallet(object):
         encrypt = message
 
         if isinstance(message, dict):
-            hashes = crypto.hash_share(pub_key)
-            if hashes in message:
-                encrypt = message[hashes]
+            encrypt = message.get(crypto.hash_share(pub_key), message)
 
         return crypto.decrypt_message(encrypt, self.get_my_enc_private_key(), pub_key)
 

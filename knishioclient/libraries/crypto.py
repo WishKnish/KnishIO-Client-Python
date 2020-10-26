@@ -5,7 +5,7 @@ from typing import Union, List, Dict
 from hashlib import shake_256 as shake
 
 _Message = Union[List, Dict, None]
-_CHARACTERS = 'GMP'
+CHARACTERS = 'GMP'
 
 
 def generate_bundle_hash(secret: str) -> str:
@@ -28,7 +28,7 @@ def generate_enc_private_key(key: str) -> bytes:
     :param key: str
     :return: str
     """
-    return Soda(_CHARACTERS).generate_private_key(key)
+    return Soda(CHARACTERS).generate_private_key(key)
 
 
 def generate_enc_public_key(key: Union[str, bytes]) -> bytes:
@@ -38,7 +38,7 @@ def generate_enc_public_key(key: Union[str, bytes]) -> bytes:
     :param key: str
     :return: str
     """
-    return Soda(_CHARACTERS).generate_public_key(key)
+    return Soda(CHARACTERS).generate_public_key(key)
 
 
 def set_characters(characters: str = None):
@@ -46,16 +46,16 @@ def set_characters(characters: str = None):
 
 
 def get_characters():
-    return _CHARACTERS
+    return CHARACTERS
 
 
 def hash_share(key):
-    return Soda(_CHARACTERS).short_hash(key)
+    return strings.decode(Soda(CHARACTERS).short_hash(key))
 
 
 def encrypt_message(message: _Message, key: str) -> str:
-    return strings.decode(Soda(_CHARACTERS).encrypt(message, key))
+    return strings.decode(Soda(CHARACTERS).encrypt(message, key))
 
 
 def decrypt_message(message: str, private_key, public_key) -> _Message:
-    return Soda(_CHARACTERS).decrypt(message, private_key, public_key)
+    return Soda(CHARACTERS).decrypt(message, private_key, public_key)

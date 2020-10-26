@@ -42,3 +42,7 @@ def array_has(array, accessor: str) -> bool:
         return array_has(date, subsidiary)
     except (KeyError, IndexError, TypeError):
         return False
+
+
+def get_signed_atom(molecule: 'Molecule'):
+    return array_get(molecule.atoms, '0')
