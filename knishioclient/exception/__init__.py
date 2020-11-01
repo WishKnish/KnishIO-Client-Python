@@ -20,6 +20,7 @@ __all__ = (
     'WrongTokenTypeException',
     'UnauthenticatedException',
     'CodeException',
+    'WalletShadowException'
 )
 
 
@@ -186,3 +187,10 @@ class CodeException(BaseError):
         Class CodeException
         """
     _message: str = 'Code exception'
+
+
+class WalletShadowException(BaseError):
+    """
+    Class WalletShadowException
+    """
+    _message: str = 'The shadow wallet does not exist'
