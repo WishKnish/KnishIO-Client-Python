@@ -3,7 +3,7 @@
 import math
 import string
 from hashlib import shake_256 as shake
-from json import JSONDecoder, JSONEncoder, dumps
+from json import JSONDecoder, JSONEncoder, dumps, JSONDecodeError
 from numpy import array, add
 from typing import Union, List, Dict, Any
 
@@ -19,7 +19,7 @@ __all__ = (
 )
 
 _Metas = Union[List[Dict[str, Union[str, int, float]]], Dict[str, Union[str, int, float]]]
-_StrOrNone = Union[str, None]
+_StrOrNone = Union[str, bytes, None]
 
 
 class Coder(JSONEncoder):
@@ -89,6 +89,19 @@ class _Base(object):
         :return: str
         """
         return Coder().encode(self)
+
+    @classmethod
+    def array_to_object(cls, data: Dict, obj=None):
+        thing = obj or cls()
+
+        for prop, value in data.items():
+            if hasattr(thing, 'set_property') and callable(getattr(thing, 'set_property')):
+                thing.set_property(prop, value)
+                continue
+
+            setattr(thing, prop, value)
+
+        return thing
 
 
 class Meta(_Base):
@@ -213,8 +226,10 @@ class Atom(_Base):
 
                 if prop in ['meta']:
                     atom.meta = Meta.normalize_meta(value)
-                    for meta in atom.meta:
+                    for index, meta in enumerate(atom.meta):
                         if meta['value'] is not None:
+                            atom.meta[index]['value'] = str(meta['value'])
+
                             for key in ['key', 'value']:
                                 molecular_sponge.update(strings.encode(meta[key]))
                     continue
@@ -241,6 +256,12 @@ class Atom(_Base):
 
         return target
 
+    def aggregated_meta(self) -> Dict:
+        """
+        :return: Dict
+        """
+        return Meta.aggregate_meta(self.meta)
+
     @classmethod
     def sort_atoms(cls, atoms: List['Atom']) -> List:
         """
@@ -248,6 +269,23 @@ class Atom(_Base):
         :return: List[Atom]
         """
         return sorted(atoms, key=lambda atom: atom.index)
+
+    def set_property(self, attribute: str, value) -> None:
+        """
+        :param attribute:
+        :param value:
+        :return: None
+        """
+        feature = {'tokenSlug': 'token', 'metas': 'meta'}.get(attribute, attribute)
+
+        if len(self.meta) == 0 and feature in 'metasJson':
+            try:
+                self.meta = JSONDecoder().decode(value)
+            except JSONDecodeError:
+                pass
+            return
+
+        setattr(self, feature, value)
 
 
 class Wallet(object):
@@ -265,35 +303,82 @@ class Wallet(object):
     pubkey: _StrOrNone = None
     characters: _StrOrNone = None
 
-    def __init__(self, secret: str = None, token: str = 'USER', position: str = None, salt_length: int = 64,
+    def __init__(self, secret: str = None, token: str = 'USER', position: str = None, batch_id: str = None,
                  characters: str = None) -> None:
         """
         :param secret: str default None
         :param token: str default USER
         :param position: str default None
-        :param salt_length: int default 64
+        :param batch_id: str default None
         :param characters: str default None
         """
-        self.position = position or strings.random_string(salt_length)
+
         self.token = token
-        self.characters = characters
         self.balance = 0
         self.molecules = []
 
-        if secret is not None:
-            self.sign(secret)
+        # Empty values
+        self.key = None
+        self.address = None
+        self.privkey = None
+        self.pubkey = None
 
-    def sign(self, secret) -> None:
+        self.bundle = None
+        self.batchId = batch_id
+        self.position = position
+        self.characters = characters
+
+        if secret is not None:
+            self.bundle = crypto.generate_bundle_hash(secret)
+            self.position = Wallet.generate_wallet_position()
+            self.prepare_keys(secret)
+
+    def prepare_keys(self, secret) -> None:
         """
         :param secret: str
         :return:
         """
-        if self.key is None and self.address is None and self.bundle is None:
-            self.key = Wallet.generate_key(secret, self.token, self.position)
-            self.address = Wallet.generate_address(self.key)
-            self.bundle = crypto.generate_bundle_hash(secret)
+        if self.key is None and self.address is None:
+            self.key = Wallet.generate_private_key(secret, self.token, self.position)
+            self.address = Wallet.generate_public_key(self.key)
             self.privkey = self.get_my_enc_private_key()
             self.pubkey = self.get_my_enc_public_key()
+
+    def is_shadow(self) -> bool:
+        """
+        :return: bool
+        """
+        return self.position is None and self.address is None
+
+    def encrypt_string(self, data: str = None, public_keys: Union[str, bytes, list] = None) -> str:
+        """
+        :param data: str
+        :param public_keys: Union[str, bytes, list]
+        :return: str
+        """
+        if public_keys is None:
+            public_keys = []
+
+        if data is not None:
+            public_key = self.get_my_enc_public_key()
+
+            if isinstance(public_keys, (str, bytes)):
+                public_keys = [public_keys]
+
+            encrypted_data = self.encrypt_my_message(data, public_key, *public_keys)
+            return strings.base64_encode(Coder().encode(encrypted_data))
+        return ''
+
+    def decrypt_string(self, data: str = None, fallback_value: str = None):
+        """
+        :param data: str
+        :param fallback_value: Union[str|None]
+        :return:
+        """
+        if data is not None:
+            decrypted = JSONDecoder().decode(strings.base64_decode(data))
+            return self.decrypt_my_message(decrypted) or fallback_value
+        return fallback_value
 
     @classmethod
     def create(cls, secret_or_bundle: str, token: str = 'USER', batch_id: str = None, characters: str = None):
@@ -304,14 +389,25 @@ class Wallet(object):
         :param characters: str
         :return: Wallet
         """
+        secret = None if cls.is_bundle_hash(secret_or_bundle) else secret_or_bundle
+        bundle = crypto.generate_bundle_hash(secret) if secret is not None else secret_or_bundle
+        position = cls.generate_wallet_position() if secret is not None else None
+
         if cls.is_bundle_hash(secret_or_bundle):
             return WalletShadow(secret_or_bundle, token, batch_id, characters)
 
-        wallet = Wallet(secret_or_bundle, token)
-        wallet.batchId = batch_id
-        wallet.characters = characters
+        wallet = Wallet(secret, token, position, batch_id, characters)
+        wallet.bundle = bundle
 
         return wallet
+
+    @classmethod
+    def generate_wallet_position(cls, salt_length: int = 64):
+        """
+        :param salt_length: int
+        :return: str
+        """
+        return strings.random_string(salt_length)
 
     @classmethod
     def is_bundle_hash(cls, code: str) -> bool:
@@ -322,11 +418,7 @@ class Wallet(object):
         return len(code) == 64 and all(c in string.hexdigits for c in code)
 
     @classmethod
-    def generate_batch_id(cls):
-        return strings.random_string(64)
-
-    @classmethod
-    def generate_address(cls, key: str) -> str:
+    def generate_public_key(cls, key: str) -> str:
         """
         :param key: str
         :return: str
@@ -349,7 +441,7 @@ class Wallet(object):
         return sponge.hexdigest(32)
 
     @classmethod
-    def generate_key(cls, secret: str, token: str, position: str) -> str:
+    def generate_private_key(cls, secret: str, token: str, position: str) -> str:
         """
         :param secret: str
         :param token: str
@@ -380,12 +472,7 @@ class Wallet(object):
         :param no_splitting: bool
         :return:
         """
-        if no_splitting:
-            batch_id = sender_wallet.batchId
-        else:
-            batch_id = Wallet.generate_batch_id()
-
-        self.batchId = batch_id
+        self.batchId = sender_wallet.batchId if no_splitting else crypto.generate_batch_id()
 
     def get_my_enc_private_key(self) -> bytes:
         """
@@ -393,7 +480,12 @@ class Wallet(object):
 
         :return: str
         """
-        return crypto.generate_enc_private_key(self.key)
+        crypto.set_characters(self.characters)
+
+        if self.privkey is None and self.key is not None:
+            self.privkey = crypto.generate_enc_private_key(self.key)
+
+        return self.privkey
 
     def get_my_enc_public_key(self) -> bytes:
         """
@@ -401,7 +493,13 @@ class Wallet(object):
 
         :return: str
         """
-        return crypto.generate_enc_public_key(self.get_my_enc_private_key())
+        crypto.set_characters(self.characters)
+        private_key = self.get_my_enc_private_key()
+
+        if self.pubkey is None and private_key is not None:
+            self.pubkey = crypto.generate_enc_public_key(private_key)
+
+        return self.pubkey
 
     def encrypt_my_message(self, message, *keys):
         crypto.set_characters(self.characters)
@@ -413,9 +511,7 @@ class Wallet(object):
         encrypt = message
 
         if isinstance(message, dict):
-            hashes = crypto.hash_share(pub_key)
-            if hashes in message:
-                encrypt = message[hashes]
+            encrypt = message.get(crypto.hash_share(pub_key), message)
 
         return crypto.decrypt_message(encrypt, self.get_my_enc_private_key(), pub_key)
 
@@ -447,8 +543,10 @@ class MoleculeStructure(_Base):
 
     molecularHash: _StrOrNone
     cellSlug: _StrOrNone
+    counterparty: _StrOrNone
     bundle: _StrOrNone
     status: _StrOrNone
+    local: bool
     createdAt: str
     atoms: List[Atom]
 
@@ -458,6 +556,7 @@ class MoleculeStructure(_Base):
         """
         :param cell_slug: str
         """
+        self.local = False
         self.cellSlugOrigin = cell_slug
         self.cellSlug = cell_slug
 
@@ -465,6 +564,14 @@ class MoleculeStructure(_Base):
         if key in 'cellSlugDelimiter':
             return '.'
         raise AttributeError(f"<{self!r}.{key!r}>")
+
+    def with_counterparty(self, counterparty: str = None):
+        """
+        :param counterparty: str
+        :return: self
+        """
+        self.counterparty = counterparty
+        return self
 
     def cell_slug_base(self):
         return False if self.cellSlug is None else self.cellSlug.split(MoleculeStructure.cellSlugDelimiter)
@@ -491,6 +598,10 @@ class MoleculeStructure(_Base):
 
             key_fragments = '%s%s' % (key_fragments, working_chunk)
         return key_fragments
+
+    def set_property(self, attribute: str, value) -> None:
+        feature = {'bundleHash': 'bundle', }.get(attribute, attribute)
+        setattr(self, feature, value)
 
     @classmethod
     def enumerate(cls, hash0: str) -> List[int]:
@@ -547,13 +658,26 @@ class MoleculeStructure(_Base):
 
         return hash_array
 
+    @classmethod
+    def to_object(cls, data):
+        obj = cls.array_to_object(data)
+
+        for key, atom_data in enumerate(obj.atoms):
+            atom = Atom(atom_data['position'], atom_data['walletAddress'], atom_data['isotope'])
+            obj.atoms[key] = Atom.array_to_object(atom_data, atom)
+
+        obj.atoms = Atom.sort_atoms(obj.atoms)
+
+        return obj
+
 
 class Molecule(MoleculeStructure):
     """class Molecule"""
 
     createdAt: str
 
-    def __init__(self, secret=None, source_wallet: Wallet = None, remainder_wallet: Wallet = None, cell_slug: str = None) -> None:
+    def __init__(self, secret=None, source_wallet: Wallet = None, remainder_wallet: Wallet = None,
+                 cell_slug: str = None) -> None:
         """
         :param secret:
         :param source_wallet:
@@ -571,6 +695,14 @@ class Molecule(MoleculeStructure):
             )
 
         self.clear()
+
+    @property
+    def USE_META_CONTEXT(self) -> bool:
+        return False
+
+    @property
+    def DEFAULT_META_CONTEXT(self) -> str:
+        return 'http://www.schema.org'
 
     def clear(self) -> 'Molecule':
         """
@@ -624,13 +756,28 @@ class Molecule(MoleculeStructure):
 
         return self
 
-    @classmethod
-    def merge_metas(cls, *arguments):
-        target = {}
-        for argument in arguments:
-            target.update(Meta.aggregate_meta(Meta.normalize_meta(argument)))
+    # @classmethod
+    # def merge_metas(cls, *arguments):
+    #    target = {}
+    #    for argument in arguments:
+    #        target.update(Meta.aggregate_meta(Meta.normalize_meta(argument)))
 
-        return target
+    #    return target
+
+    def encrypt_message(self, data, shared_wallets: list):
+        args = [data, self.sourceWallet.pubkey]
+        args.extend(shared_wallets)
+        getattr(self.sourceWallet, 'encrypt_my_message')(*args)
+
+    def final_metas(self, metas: _Metas, wallet: Wallet = None) -> _Metas:
+        purse = wallet if wallet is not None else self.sourceWallet
+        metas.update({'pubkey': purse.pubkey, 'characters': purse.characters})
+        return metas
+
+    def context_metas(self, metas: _Metas, context: str = None) -> _Metas:
+        if Molecule.USE_META_CONTEXT:
+            metas['context'] = context if context is not None else Molecule.DEFAULT_META_CONTEXT
+        return metas
 
     @classmethod
     def continu_id_meta_type(cls) -> str:
@@ -684,15 +831,43 @@ class Molecule(MoleculeStructure):
                 None,
                 Molecule.continu_id_meta_type(),
                 user_remainder_wallet.bundle,
-                {
-                    "pubkey": user_remainder_wallet.pubkey,
-                    "characters": user_remainder_wallet.characters
-                },
+                self.final_metas({}, user_remainder_wallet),
                 None,
                 self.generate_index()
             )
         )
 
+        self.atoms = Atom.sort_atoms(self.atoms)
+
+        return self
+
+    def crate_rule(self, meta_type: str, meta_id: Union[str, bytes, int], meta: _Metas):
+        aggregate_meta = Meta.aggregate_meta(Meta.normalize_meta(meta))
+
+        if all(key not in aggregate_meta for key in ("conditions", "callback", "rule")):
+            raise MetaMissingException('No or not defined conditions or callback or rule in meta')
+
+        for index in ("conditions", "callback", "rule"):
+            if isinstance(aggregate_meta[index], (list, Dict)):
+                aggregate_meta[index] = Coder().encode(aggregate_meta[index])
+
+        self.add_atom(
+            Atom(
+                self.sourceWallet.position,
+                self.sourceWallet.address,
+                "R",
+                self.sourceWallet.token,
+                None,
+                None,
+                meta_type,
+                meta_id,
+                self.final_metas(aggregate_meta),
+                None,
+                self.generate_index()
+            )
+        )
+
+        self.add_user_remainder_atom(self.remainderWallet)
         self.atoms = Atom.sort_atoms(self.atoms)
 
         return self
@@ -710,8 +885,7 @@ class Molecule(MoleculeStructure):
         if all(key not in aggregate_meta for key in ("address", "position", "batchId")):
             raise MetaMissingException('No or not defined address or position or batchId in meta')
 
-        self.molecularHash = None
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
@@ -721,13 +895,7 @@ class Molecule(MoleculeStructure):
                 self.sourceWallet.batchId,
                 "token",
                 token,
-                Molecule.merge_metas(
-                    {
-                        "pubkey": self.sourceWallet.pubkey,
-                        "characters": self.sourceWallet.characters,
-                    },
-                    aggregate_meta
-                ),
+                self.final_metas(self.context_metas(aggregate_meta)),
                 None,
                 self.generate_index()
             )
@@ -745,9 +913,7 @@ class Molecule(MoleculeStructure):
         if decimal.cmp(0.0, float(self.sourceWallet.balance) - value) > 0:
             raise BalanceInsufficientException()
 
-        self.molecularHash = None
-
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
@@ -757,16 +923,13 @@ class Molecule(MoleculeStructure):
                 self.sourceWallet.batchId,
                 None,
                 None,
-                {
-                    "pubkey": self.sourceWallet.pubkey,
-                    "characters": self.sourceWallet.characters,
-                },
+                self.final_metas({}),
                 None,
                 self.generate_index()
             )
         )
 
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.remainderWallet.position,
                 self.remainderWallet.address,
@@ -776,10 +939,7 @@ class Molecule(MoleculeStructure):
                 self.remainderWallet.batchId,
                 'walletBundle' if wallet_bundle else None,
                 wallet_bundle,
-                {
-                    "pubkey": self.remainderWallet.pubkey,
-                    "characters": self.remainderWallet.characters,
-                },
+                self.final_metas({}, self.remainderWallet),
                 None,
                 self.generate_index()
             )
@@ -814,10 +974,7 @@ class Molecule(MoleculeStructure):
                 self.sourceWallet.batchId,
                 None,
                 None,
-                {
-                    "pubkey": self.sourceWallet.pubkey,
-                    "characters": self.sourceWallet.characters,
-                },
+                self.final_metas({}),
                 None,
                 self.generate_index()
             )
@@ -833,10 +990,7 @@ class Molecule(MoleculeStructure):
                 recipient.batchId,
                 'walletBundle',
                 recipient.bundle,
-                {
-                    "pubkey": recipient.pubkey,
-                    "characters": recipient.characters,
-                },
+                self.final_metas({}, recipient),
                 None,
                 self.generate_index()
             )
@@ -852,10 +1006,7 @@ class Molecule(MoleculeStructure):
                 self.remainderWallet.batchId,
                 'walletBundle',
                 self.sourceWallet.bundle,
-                {
-                    "pubkey": self.remainderWallet.pubkey,
-                    "characters": self.remainderWallet.characters,
-                },
+                self.final_metas({}, self.remainderWallet),
                 None,
                 self.generate_index()
             )
@@ -866,19 +1017,16 @@ class Molecule(MoleculeStructure):
         return self
 
     def init_wallet_creation(self, new_wallet: Wallet):
-        self.molecularHash = None
         metas = {
             "address": new_wallet.address,
             "token": new_wallet.token,
             "bundle": new_wallet.bundle,
             "position": new_wallet.position,
             "amount": 0,
-            "batch_id": new_wallet.batchId,
-            "pubkey": new_wallet.pubkey,
-            "characters": new_wallet.characters,
+            "batch_id": new_wallet.batchId
         }
 
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
@@ -888,7 +1036,42 @@ class Molecule(MoleculeStructure):
                 self.sourceWallet.batchId,
                 "wallet",
                 new_wallet.address,
-                metas,
+                self.final_metas(self.context_metas(metas), new_wallet),
+                None,
+                self.generate_index()
+            )
+        )
+
+        self.add_user_remainder_atom(self.remainderWallet)
+        self.atoms = Atom.sort_atoms(self.atoms)
+
+        return self
+
+    def init_peer_creation(self, slug: str, host: str, name: str = None, cell_slugs: list = None):
+        """
+        :param slug: str
+        :param host: str
+        :param name: str
+        :param cell_slugs: list
+        :return: self
+        """
+        metas = {
+            'host': host,
+            'name': name,
+            'cellSlugs': cell_slugs or []
+        }
+
+        self.add_atom(
+            Atom(
+                self.sourceWallet.position,
+                self.sourceWallet.address,
+                'P',
+                self.sourceWallet.token,
+                None,
+                self.sourceWallet.batchId,
+                'peer',
+                slug,
+                self.final_metas(metas),
                 None,
                 self.generate_index()
             )
@@ -965,13 +1148,7 @@ class Molecule(MoleculeStructure):
                 recipient.batchId,
                 'token',
                 recipient.token,
-                Molecule.merge_metas(
-                    {
-                        "pubkey": self.sourceWallet.pubkey,
-                        "characters": self.sourceWallet.characters,
-                    },
-                    metas
-                ),
+                self.final_metas(Meta.aggregate_meta(metas)),
                 None,
                 self.generate_index()
             )
@@ -982,15 +1159,14 @@ class Molecule(MoleculeStructure):
 
         return self
 
-    def init_shadow_wallet_claim_atom(self, token, wallets: List[Wallet]):
+    def init_shadow_wallet_claim(self, token_slug: str, wallet: Wallet):
         self.molecularHash = None
-        wallets_metas = [
-            {
-                "walletAddress": wallet.address,
-                "walletPosition": wallet.position,
-                "batchId": wallet.batchId
-            } for wallet in wallets
-        ]
+        metas = {
+            "tokenSlug"
+            "walletAddress": wallet.address,
+            "walletPosition": wallet.position,
+            "batchId": wallet.batchId
+        }
 
         self.atoms.append(
             Atom(
@@ -1000,13 +1176,9 @@ class Molecule(MoleculeStructure):
                 self.sourceWallet.token,
                 None,
                 None,
-                'shadowWallet',
-                token,
-                {
-                    "pubkey": self.sourceWallet.pubkey,
-                    "characters": self.sourceWallet.characters,
-                    "wallets": dumps(Meta.normalize_meta(wallets_metas))
-                },
+                'wallet',
+                wallet.address,
+                Molecule.final_metas(metas),
                 None,
                 self.generate_index()
             )
@@ -1039,13 +1211,7 @@ class Molecule(MoleculeStructure):
                 self.sourceWallet.batchId,
                 meta_type,
                 meta_id,
-                Molecule.merge_metas(
-                    {
-                        "pubkey": self.sourceWallet.pubkey,
-                        "characters": self.sourceWallet.characters,
-                    },
-                    meta
-                ),
+                self.final_metas(meta),
                 None,
                 self.generate_index()
             )
@@ -1091,7 +1257,7 @@ class Molecule(MoleculeStructure):
 
         return self
 
-    def init_token_transfer(self, token, amount, meta_type, meta_id, meta: List = None):
+    def init_token_request(self, token, requested_amount, meta_type, meta_id, meta: Union[list, dict] = None):
         self.molecularHash = None
         meta = meta or []
 
@@ -1101,7 +1267,7 @@ class Molecule(MoleculeStructure):
                 self.sourceWallet.address,
                 "T",
                 self.sourceWallet.token,
-                amount,
+                requested_amount,
                 None,
                 meta_type,
                 meta_id,
@@ -1123,7 +1289,7 @@ class Molecule(MoleculeStructure):
 
         return self
 
-    def init_authentication(self):
+    def init_authorization(self):
         self.molecularHash = None
 
         self.atoms.append(
@@ -1168,7 +1334,8 @@ class Molecule(MoleculeStructure):
         self.molecularHash = Atom.hash_atoms(self.atoms)
         self.atoms = Atom.sort_atoms(self.atoms)
         first_atom = self.atoms[0]
-        key = Wallet.generate_key(self.secret(), first_atom.token, first_atom.position)
+        key = Wallet.generate_private_key(self.secret(), first_atom.token, first_atom.position)
+
         signature_fragments = self.signature_fragments(key)
 
         # Compressing the OTS

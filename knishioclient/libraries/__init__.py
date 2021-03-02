@@ -6,7 +6,7 @@ from . import strings
 from hashlib import shake_256 as shake
 from libnacl.public import SecretKey
 from libnacl.encode import hex_decode
-from libnacl import (crypto_box_seal, crypto_box_seal_open, crypto_box_SECRETKEYBYTES)
+from libnacl import (crypto_box_seal, crypto_box_seal_open, crypto_box_SECRETKEYBYTES, CryptError)
 from base58 import BITCOIN_ALPHABET, RIPPLE_ALPHABET, b58encode, b58decode, b58encode_int, b58decode_int
 
 
@@ -69,19 +69,21 @@ class Soda(object):
     def encrypt(self, message, key):
         return self.encode(
             crypto_box_seal(
-                dumps(message),
+                strings.encode(dumps(message)),
                 self.decode(key)
             )
         )
 
     def decrypt(self, decrypted, private_key, public_key):
-        return loads(
-            crypto_box_seal_open(
+        try:
+            decrypt = crypto_box_seal_open(
                 self.decode(decrypted),
-                self.decode(private_key),
-                self.decode(public_key)
+                self.decode(public_key),
+                self.decode(private_key)
             )
-        )
+        except CryptError:
+            decrypt = None
+        return None if decrypt is None else loads(decrypt)
 
     def generate_private_key(self, key):
         sponge = shake()
@@ -94,7 +96,7 @@ class Soda(object):
     def short_hash(self, key):
         sponge = shake()
         sponge.update(strings.encode(key))
-        return self.encode(sponge.hexdigest(8))
+        return self.encode(sponge.digest(8))
 
     def encode(self, data) -> bytes:
         return self.encoder.encode(data)

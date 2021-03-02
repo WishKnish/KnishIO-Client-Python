@@ -5,26 +5,32 @@ import asyncio
 from knishioclient.exception import (
     UnauthenticatedException,
     CodeException,
-    WalletShadowException,
     TransferBalanceException
 )
 from knishioclient.query import (
-    QueryContinuId,
-    QueryMoleculePropose,
-    QueryBalance,
-    QueryAuthentication,
     Query,
-    QueryTokenCreate,
-    QueryTokenReceive,
-    QueryIdentifierCreate,
+    QueryContinuId,
+    QueryBalance,
     QueryWalletList,
-    QueryShadowWalletClaim,
-    QueryTokenTransfer,
+    QueryMetaType,
+    QueryWalletBundle
 )
-from knishioclient.models import Wallet, Molecule, WalletShadow
-from knishioclient.libraries.array import array_get
+from knishioclient.mutation import (
+    Mutation,
+    MutationProposeMolecule,
+    MutationRequestAuthorization,
+    MutationCreateToken,
+    MutationRequestTokens,
+    MutationLinkIdentifier,
+    MutationClaimShadowWallet,
+    MutationTransferTokens,
+    MutationCreateWallet,
+    MutationCreateMeta
+)
+from knishioclient.models import Wallet, Molecule, Union, Coder
+from knishioclient.libraries.array import array_get, get_signed_atom
 from knishioclient.libraries.crypto import generate_bundle_hash
-from knishioclient.libraries import decimal, strings
+from knishioclient.libraries import decimal, strings, crypto
 
 
 class HttpClient(object):
@@ -59,18 +65,47 @@ class HttpClient(object):
         })
         if self.get_auth_token() is not None:
             options.update({'X-Auth-Token': self.get_auth_token()})
-        async with aiohttp.ClientSession(headers=options) as session:
-            async with session.post(self.get_url(), data=request, ssl=False) as response:
+        async with aiohttp.ClientSession(headers=options, json_serialize=Coder().encode) as session:
+            async with session.post(self.get_url(), json=request, ssl=False) as response:
                 return await response.json()
 
 
 class KnishIOClient(object):
-    def __init__(self, url: str, client: HttpClient = None):
-        self.__client = client or HttpClient(url)
+    def __init__(self, url: str, client: HttpClient = None, server_sdk_version=3, logging: bool = False):
+        self.__client = None
         self.__cell_slug = None
         self.__secret = None
+        self.__bundle = None
         self.__last_molecule_query = None
         self.__remainder_wallet = None
+        self.__authorization_wallet = None
+        self.__server_key = None
+        self.__logging = False
+        self.__server_sdk_version = 3
+
+        self.initialize(url, client, server_sdk_version, logging)
+
+    def initialize(self, url: str, client: HttpClient = None, server_sdk_version: int = 3, logging: bool = False):
+        self.reset()
+        self.__logging = logging
+        self.__client = client or HttpClient(url)
+        self.__server_sdk_version = server_sdk_version
+
+    def deinitialize(self):
+        self.reset()
+
+    def reset(self):
+        self.__secret = None
+        self.__bundle = None
+        self.__remainder_wallet = None
+
+    def bundle(self) -> str:
+        if self.__bundle is None:
+            raise UnauthenticatedException()
+        return self.__bundle
+
+    def get_server_sdk_version(self):
+        return self.__server_sdk_version
 
     def url(self):
         self.__client.get_url()
@@ -81,17 +116,18 @@ class KnishIOClient(object):
     def cell_slug(self):
         return self.__cell_slug
 
-    def set_cell_clug(self, cell_slug: str):
+    def set_cell_slug(self, cell_slug: str):
         self.__cell_slug = cell_slug
-
-    def cell_slug(self):
-        return self.__cell_slug
 
     def client(self):
         return self.__client
 
     def set_secret(self, secret: str):
         self.__secret = secret
+        self.__bundle = generate_bundle_hash(secret)
+
+    def has_secret(self):
+        return self.__secret is not None
 
     def create_molecule(self, secret: str = None, source_wallet: Wallet = None, remainder_wallet: Wallet = None):
         secret = secret or self.secret()
@@ -106,138 +142,209 @@ class KnishIOClient(object):
             source_wallet = self.get_source_wallet()
 
         self.__remainder_wallet = remainder_wallet or Wallet.create(
-            secret, 'USER', source_wallet.batchId, source_wallet.characters
+            secret, source_wallet.token, source_wallet.batchId, source_wallet.characters
         )
 
         return Molecule(secret, source_wallet, self.__remainder_wallet, self.cell_slug())
 
-    def create_molecule_query(self, aclass: Query, molecule: Molecule = None) -> Query:
+    def create_molecule_mutation(self, mutation_class, molecule: Molecule = None) -> Mutation:
         molecule = molecule or self.create_molecule()
-        query = aclass(self.client(), molecule)
+        mutation = mutation_class(self, molecule)
 
-        if not isinstance(query, QueryMoleculePropose):
+        if not isinstance(mutation, MutationProposeMolecule):
             raise CodeException(
-                '%s.createMoleculeQuery - required class instance of QueryMoleculePropose.' % self.__class__.__name__
+                '%s.createMoleculeQuery - required class instance of MutationProposeMolecule.' % self.__class__.__name__
             )
-        self.__last_molecule_query = query
+        self.__last_molecule_query = mutation
 
-        return query
+        return mutation
 
-    def create_query(self, aclass: Query) -> Query:
-        return aclass(self.client())
+    def create_query(self, query) -> Query:
+        return query(self)
 
     def secret(self):
         if self.__secret is None:
-            raise UnauthenticatedException('Expected KnishIOClient.authentication call before.')
+            raise UnauthenticatedException('Expected KnishIOClient.request_auth_token call before.')
 
         return self.__secret
 
-    def get_source_wallet(self):
-        source_wallet = self.get_continu_id(generate_bundle_hash(self.secret())).payload()
+    def get_source_wallet(self) -> Wallet:
+        source_wallet = self.query_continu_id(self.bundle()).payload()
+
         if source_wallet is None:
             source_wallet = Wallet(self.secret())
+
         return source_wallet
 
-    def get_continu_id(self, bundle_hash: str):
+    def query_continu_id(self, bundle_hash: str):
         return self.create_query(QueryContinuId).execute({'bundle': bundle_hash})
 
     def get_remainder_wallet(self):
         return self.__remainder_wallet
 
-    def get_balance(self, code: str, token: str):
+    def query_balance(self, token_slug: str, bundle_hash: str = None):
         query = self.create_query(QueryBalance)
-        bundle_hash = code if Wallet.is_bundle_hash(code) else generate_bundle_hash(code)
 
         return query.execute({
-            'bundleHash': bundle_hash,
-            'token': token
+            'bundleHash': bundle_hash or self.bundle(),
+            'token': token_slug
         })
 
-    def authentication(self, secret: str, cell_slug: str = None):
+    def create_meta(self, meta_type, meta_id, metadata=None):
+        if metadata is None:
+            metadata = {}
+
+        query = self.create_molecule_mutation(
+            MutationCreateMeta,
+            self.create_molecule(self.secret(), self.get_source_wallet())
+        )
+
+        query.fill_molecule(meta_type, meta_id, metadata)
+
+        return query.execute()
+
+    def query_meta(self, meta_type: str = None, meta_id: Union[str, bytes, int, float] = None,
+                   key: Union[str, bytes] = None, value: Union[str, bytes, int, float] = None,
+                   latest: bool = None, fields=None, filter: Union[list, dict] = None):
+        query = self.create_query(QueryMetaType)
+        variables = QueryMetaType.create_variables(meta_type, meta_id, key, value, latest, filter)
+
+        return query.execute(variables, fields).payload()
+
+    def create_wallet(self, token_slug: str):
+        new_wallet = Wallet(self.secret(), token_slug)
+        query = self.create_molecule_mutation(MutationCreateWallet)
+        query.fill_molecule(new_wallet)
+
+        return query.execute()
+
+    def query_wallets(self, bundle_hash: Union[str, bytes] = None, unspent: bool = True):
+        wallet_query = self.create_query(QueryWalletList)
+        response = wallet_query.execute({
+            'bundleHash': bundle_hash or self.bundle(),
+            'unspent': unspent
+        })
+
+        return response.get_wallets()
+
+    def request_auth_token(self, secret: str, cell_slug: str = None):
         self.set_secret(secret)
-        self.set_cell_clug(cell_slug or self.cell_slug())
+        self.set_cell_slug(cell_slug or self.cell_slug())
+
         molecule = self.create_molecule(self.secret(), Wallet(self.secret(), 'AUTH'))
-        query = self.create_molecule_query(QueryAuthentication, molecule)
+        query = self.create_molecule_mutation(MutationRequestAuthorization, molecule)
+
         query.fill_molecule()
+
         response = query.execute()
 
         if response.success():
             self.client().set_auth_token(response.token())
         else:
-            return UnauthenticatedException(response.reason())
+            raise UnauthenticatedException(response.reason())
 
         return response
 
-    def create_token(self, token, amount, metas=None):
-        data_metas = metas or {}
-        recipient_wallet = Wallet(self.secret(), token)
+    def create_token(self, token_slug: str, initial_amount: Union[int, float],
+                     token_metadata: Union[list, dict] = None):
+        data_metas = token_metadata or {}
+        recipient_wallet = Wallet(self.secret(), token_slug)
 
         if array_get(data_metas, 'fungibility') in 'stackable':
-            recipient_wallet.batchId = Wallet.generate_batch_id()
+            recipient_wallet.batchId = crypto.generate_batch_id()
 
-        query = self.create_molecule_query(QueryTokenCreate)
-        query.fill_molecule(recipient_wallet, amount, data_metas)
+        query = self.create_molecule_mutation(MutationCreateToken)
+        query.fill_molecule(recipient_wallet, initial_amount, data_metas)
 
         return query.execute()
 
-    def receive_token(self, token, value, to, metas=None):
+    def request_tokens(self, token_slug: str, requested_amount: Union[int, float],
+                       to: Union[str, bytes, Wallet] = None, metas: Union[list, dict] = None):
         data_metas = metas or {}
+        meta_type = None
+        meta_id = None
 
-        if isinstance(to, str) or isinstance(to, bytes):
-            if Wallet.is_bundle_hash(to):
-                meta_type = 'walletbundle'
-                meta_id = to
-            else:
-                to = Wallet.create(to, token)
-        if isinstance(to, Wallet):
-            meta_type = 'wallet'
-            data_metas.update({
-                'position': to.position,
-                'bundle': to.bundle,
-            })
-            meta_id = to.address
+        if to is not None:
+            if isinstance(to, (str, bytes)):
+                if Wallet.is_bundle_hash(to):
+                    meta_type = 'walletbundle'
+                    meta_id = to
+                else:
+                    to = Wallet.create(to, token_slug)
+            if isinstance(to, Wallet):
+                meta_type = 'wallet'
+                data_metas.update({
+                    'position': to.position,
+                    'bundle': to.bundle,
+                })
+                meta_id = to.address
+        else:
+            meta_type = 'walletBundle'
+            meta_id = self.bundle()
 
-        query = self.create_molecule_query(QueryTokenReceive)
-        query.fill_molecule(token, value, meta_type, meta_id, data_metas)
+        query = self.create_molecule_mutation(MutationRequestTokens)
+        query.fill_molecule(token_slug, requested_amount, meta_type, meta_id, data_metas)
 
         return query.execute()
 
     def create_identifier(self, type0, contact, code):
-        query = self.create_molecule_query(QueryIdentifierCreate)
+        query = self.create_molecule_mutation(MutationLinkIdentifier)
         query.fill_molecule(type0, contact, code)
 
         return query.execute()
 
-    def get_shadow_wallets(self, token):
+    def query_shadow_wallets(self, token_slug: str = 'KNISH', bundle_hash: Union[str, bytes] = None):
         query = self.create_query(QueryWalletList)
         response = query.execute({
-            'bundleHash': generate_bundle_hash(self.secret()),
-            'token': token
+            'bundleHash': bundle_hash or self.bundle(),
+            'token': token_slug
         })
-        shadow_wallets = response.payload()
 
-        if shadow_wallets is None:
-            raise WalletShadowException()
-        if not all((isinstance(shadow_wallet, WalletShadow) for shadow_wallet in shadow_wallets)):
-            raise WalletShadowException()
-        return shadow_wallets
+        return response.payload()
 
-    def claim_shadow_wallet(self, token, molecule: Molecule = None):
-        shadow_wallets = self.get_shadow_wallets(token)
-        query = self.create_molecule_query(QueryShadowWalletClaim)
-        query.fill_molecule(token, shadow_wallets)
+    def claim_shadow_wallet(self, token_slug: str, batch_id: str, molecule: Molecule = None):
+        query = self.create_molecule_mutation(MutationClaimShadowWallet, molecule)
+        query.fill_molecule(token_slug, batch_id)
+
         return query.execute()
 
-    def transfer_token(self, to, token, amount):
-        from_wallet = self.get_balance(self.secret(), token).payload()
+    def query_bundle(self, bundle_hash: Union[str, bytes] = None, key: Union[str, bytes] = None,
+                     value: Union[str, bytes, int, float] = None, latest: bool = True, fields=None):
+        query = self.create_query(QueryWalletBundle)
+        variables = QueryWalletBundle.create_variables(bundle_hash or self.bundle(), key, value, latest)
+        response = query.execute(variables, fields)
+
+        return response.payload()
+
+    def transfer_token(self, wallet_object_or_bundle_hash: Union[Wallet, str, bytes], token_slug: str,
+                       amount: Union[int, float]):
+        from_wallet = self.query_bundle(token_slug).payload()
+
         if from_wallet is None or decimal.cmp(strings.number(from_wallet.balance), amount) < 0:
             raise TransferBalanceException('The transfer amount cannot be greater than the sender\'s balance')
-        to_wallet = to if isinstance(to, Wallet) else self.get_balance(to, token).payload()
+
+        to_wallet = wallet_object_or_bundle_hash if isinstance(wallet_object_or_bundle_hash, Wallet) else \
+            self.query_balance(token_slug, wallet_object_or_bundle_hash).payload()
+
         if to_wallet is None:
-            to_wallet = Wallet.create(to, token)
+            to_wallet = Wallet.create(wallet_object_or_bundle_hash, token_slug)
+
         to_wallet.init_batch_id(from_wallet, amount)
-        self.__remainder_wallet = Wallet.create(self.secret(), token, to_wallet.batchId, from_wallet.characters)
+
+        self.__remainder_wallet = Wallet.create(self.secret(), token_slug, to_wallet.batchId, from_wallet.characters)
+
         molecule = self.create_molecule(None, from_wallet, self.get_remainder_wallet())
-        query = self.create_molecule_query(QueryTokenTransfer, molecule)
+        query = self.create_molecule_mutation(MutationTransferTokens, molecule)
         query.fill_molecule(to_wallet, amount)
+
         return query.execute()
+
+    def get_authorization_wallet(self):
+        return self.__authorization_wallet
+
+    def get_server_key(self):
+        return self.__server_key
+
+    def extracting_authorization_wallet(self, molecule: Molecule):
+        atom = get_signed_atom(molecule)
+        return Wallet(self.secret(), atom.token, atom.position) if atom is not None else None
