@@ -42,7 +42,8 @@ def generate_enc_public_key(key: Union[str, bytes]) -> bytes:
 
 
 def set_characters(characters: str = None):
-    _CHARACTERS = characters if characters in Base58.__dict__['__annotations__'] else 'GMP'
+    global CHARACTERS
+    CHARACTERS = characters if characters in Base58.__dict__['__annotations__'] else 'GMP'
 
 
 def get_characters():
@@ -59,3 +60,10 @@ def encrypt_message(message: _Message, key: str) -> str:
 
 def decrypt_message(message: str, private_key, public_key) -> _Message:
     return Soda(CHARACTERS).decrypt(message, private_key, public_key)
+
+
+def generate_batch_id():
+    """
+    :return: str
+    """
+    return strings.random_string(64)

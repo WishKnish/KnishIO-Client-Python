@@ -33,9 +33,9 @@ class BaseError(Exception):
     _code: int
 
     def __int__(self, message: str = None, code: int = 1, *args) -> None:
-        super().__init__(message, code, *args)
         self._message = message
         self._code = code
+        super(Exception, self).__init__(self._message, self._code, *args)
 
     @property
     def message(self) -> str:
@@ -46,10 +46,10 @@ class BaseError(Exception):
         return self._code
 
     def __str__(self) -> str:
-        return self._message
+        return self.message or self.__repr__()
 
     def __repr__(self) -> str:
-        return "<%s: %s>" % (self.__class__.__name__, self._message)
+        return "<%s: %s>" % (self.__class__.__name__, self.message or '')
 
 
 class AtomIndexException(BaseError):
