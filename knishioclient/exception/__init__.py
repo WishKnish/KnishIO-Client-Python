@@ -22,6 +22,7 @@ __all__ = (
     'CodeException',
     'WalletShadowException',
     'DecryptException',
+    'BaseError'
 )
 
 
