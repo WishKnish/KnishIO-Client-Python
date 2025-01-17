@@ -107,6 +107,7 @@ lib64/
 parts/
 sdist/
 var/
+knishioclient/liboqs/
 *.egg-info/
 .installed.cfg
 *.egg

@@ -63,9 +63,20 @@ class ResponseWalletList(Response):
     @classmethod
     def to_client_wallet(cls, data, secret=None):
         if data['position'] is None:
-            wallet = Wallet.create(data['bundleHash'], data['tokenSlug'], data['batchId'], data['characters'])
+            wallet = Wallet.create(
+                bundle=data['bundleHash'],
+                token=data['tokenSlug'],
+                batch_id=data['batchId'],
+                characters=data['characters']
+            )
         else:
-            wallet = Wallet(secret, data['tokenSlug'], data['position'], data['batchId'], data['characters'])
+            wallet = Wallet(
+                secret=secret,
+                token=data['tokenSlug'],
+                position=data['position'],
+                batch_id=data['batchId'],
+                characters=data['characters']
+            )
             wallet.address = data['address']
             wallet.bundle = data['bundleHash']
 
@@ -179,6 +190,33 @@ class ResponseIdentifier(Response):
 
     def message(self):
         return array_get(self.data(), 'message')
+
+
+class ResponseMetaTypeViaAtom(Response):
+    def __init__(self, query, json):
+        super(ResponseMetaTypeViaAtom, self).__init__(query, json)
+        self.dataKey = 'data.MetaTypeViaAtom'
+
+    def payload(self) -> dict | None:
+        super(ResponseMetaTypeViaAtom, self).payload()
+        meta_type_data = self.data()
+
+        if meta_type_data is None or len(meta_type_data) == 0:
+            return None
+
+        response = {
+            "instances": {},
+            "instanceCount": {},
+            "paginatorInfo": {}
+        }
+
+        meta_data = meta_type_data.pop()
+
+        for key in ["instances", "instanceCount", "paginatorInfo"]:
+            if key in meta_data:
+                response[key] = meta_data[key]
+
+        return response
 
 
 class ResponseMetaType(Response):

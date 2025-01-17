@@ -9,6 +9,7 @@ from knishioclient.response import (
     ResponseMetaType,
     ResponseWalletBundle,
     ResponseWalletList,
+    ResponseMetaTypeViaAtom
 )
 
 
@@ -139,28 +140,115 @@ class QueryContinuId(Query):
     def create_response(self, response: dict):
         return ResponseContinuId(self, response)
 
+class QueryMetaTypeViaAtom(Query):
+    def __init__(self, knish_io_client: 'KnishIOClient', query: str = None):
+        super(QueryMetaTypeViaAtom, self).__init__(knish_io_client, query)
+        self.default_query = 'query ($metaTypes: [String!], $metaIds: [String!], $values: [String!], $keys: [String!], $latest: Boolean, $filter: [MetaFilter!], $queryArgs: QueryArgs, $countBy: String, $atomValues: [String!] ) { MetaTypeViaAtom(metaTypes: $metaTypes, metaIds: $metaIds, atomValues: $atomValues, filter: $filter, latest: $latest, queryArgs: $queryArgs, countBy: $countBy) @fields }'
+        self.fields = {
+            "metaType": None,
+            "instanceCount": {
+                "key": None,
+                "value": None
+            },
+            "instances": {
+                "metaType": None,
+                "metaId": None,
+                "createdAt": None,
+                "metas(values: $values, keys: $keys )": {
+                    "molecularHash": None,
+                    "position": None,
+                    "key": None,
+                    "value": None,
+                    "createdAt": None
+                }
+            },
+            "paginatorInfo": {
+                "currentPage": None,
+                "total": None
+            }
+        }
+
+        self.query = query or self.default_query
+
+    def create_response(self, response):
+        return ResponseMetaTypeViaAtom(self, response)
+
+    @classmethod
+    def create_variables(
+            cls,
+            *,
+            meta_type: str | list = None,
+            meta_id: str | list = None,
+            key: str = None,
+            value: str = None,
+            keys: list = None,
+            values: list = None,
+            atom_values: list = None,
+            latest: bool = None,
+            filter: list = None,
+            query_args: dict = None,
+            count_by:str = None,
+    ) -> dict:
+        variables = {}
+
+        if atom_values is not None:
+            variables["atomValues"] = atom_values
+        if keys is not None:
+            variables["keys"] = keys
+        if values is not None:
+            variables["values"] = values
+        if meta_type is not None:
+            variables["metaTypes"] = meta_type if isinstance(meta_type, list) else [meta_type]
+        if meta_id is not None:
+            variables["metaIds"] = meta_id if isinstance(meta_id, list) else [meta_id]
+        if count_by is not None:
+            variables["countBy"] = count_by
+        if filter is not None:
+            variables["filter"] = filter
+        if key is not None and value is not None:
+            if "filter" not in variables:
+                variables["filter"] = []
+            variables["filter"].append({
+                "key": key,
+                "value": value,
+                "comparison": "="
+            })
+        if query_args is not None:
+            if "limit" not in query_args or len(query_args["limit"]) == 0:
+                query_args["limit"] = "*"
+            variables["queryArgs"] = query_args
+
+        variables["latest"] = latest == True
+
+        return variables
+
+
 
 class QueryMetaType(Query):
     def __init__(self, knish_io_client: 'KnishIOClient', query: str = None):
         super(QueryMetaType, self).__init__(knish_io_client, query)
-        self.default_query = 'query( $metaType: String, $metaTypes: [ String! ], $metaId: String, $metaIds: [ String! ], $key: String, $keys: [ String! ], $value: String, $values: [ String! ], $count: String, $latest: Boolean, $filter: [ MetaFilter! ], $latestMetas: Boolean, $limit: Int, $offset: Int ) { MetaType( metaType: $metaType, metaTypes: $metaTypes, metaId: $metaId, metaIds: $metaIds, key: $key, keys: $keys, value: $value, values: $values, count: $count, filter: $filter, latestMetas: $latestMetas, limit: $limit, offset: $offset ) @fields }'
+        self.default_query = 'query( $metaType: String, $metaTypes: [ String! ], $metaId: String, $metaIds: [ String! ], $key: String, $keys: [ String! ], $value: String, $values: [ String! ], $count: String, $latest: Boolean, $filter: [ MetaFilter! ], $queryArgs: QueryArgs, $countBy: String ) { MetaType( metaType: $metaType, metaTypes: $metaTypes, metaId: $metaId, metaIds: $metaIds, key: $key, keys: $keys, value: $value, values: $values, count: $count, filter: $filter, queryArgs: $queryArgs, countBy: $countBy ) @fields }'
         self.fields = {
-            'metaType': None,
-            'instances': {
-                'metaType': None,
-                'metaId': None,
-                'createdAt': None,
-                'metas(latest:$latest)': {
-                    'molecularHash': None,
-                    'position': None,
-                    'key': None,
-                    'value': None,
-                    'createdAt': None,
-                },
+            "metaType": None,
+            "instanceCount": {
+              "key": None,
+              "value": None
             },
-            'paginatorInfo': {
-                'currentPage': None,
-                'lastPage': None,
+            "instances": {
+              "metaType": None,
+              "metaId": None,
+              "createdAt": None,
+              "metas(latest:$latest)": {
+                "molecularHash": None,
+                "position": None,
+                "key": None,
+                "value": None,
+                "createdAt": None
+              }
+            },
+            "paginatorInfo": {
+              "currentPage": None,
+              "total": None
             }
         }
 
@@ -170,8 +258,18 @@ class QueryMetaType(Query):
         return ResponseMetaType(self, response)
 
     @classmethod
-    def create_variables(cls, meta_type=None, meta_id=None, key=None, value=None, latest=None, filter=None,
-                         latest_metas=None, limit=None, offset=None) -> dict:
+    def create_variables(
+            cls,
+            meta_type: str | list = None,
+            meta_id: str | list = None,
+            key: str | list = None,
+            value: str | list = None,
+            latest: bool = None,
+            filter: dict = None,
+            query_args: dict = None,
+            count: str = None,
+            count_by: str = None
+    ) -> dict:
         variables = {}
 
         if meta_type is not None:
@@ -179,39 +277,34 @@ class QueryMetaType(Query):
                 variables.update({'metaType': meta_type})
             else:
                 variables.update({'metaTypes': meta_type})
-
         if meta_id is not None:
             if isinstance(meta_id, str):
                 variables.update({'metaId': meta_id})
             else:
                 variables.update({'metaIds': meta_id})
-
         if key is not None:
             if isinstance(key, str):
                 variables.update({'key': key})
             else:
                 variables.update({'keys': key})
-
         if value is not None:
             if isinstance(value, str):
                 variables.update({'value': key})
             else:
                 variables.update({'values': key})
 
-        if latest is not None:
-            variables.update({'latest': latest})
-
-        if latest_metas is not None:
-            variables.update({'latestMetas': bool(latest_metas)})
+        variables.update({'latest': latest == True})
 
         if filter is not None:
             variables.update({'filter': filter})
-
-        if limit is not None:
-            variables.update({'limit': limit})
-
-        if offset is not None:
-            variables.update({'offset': offset})
+        if query_args is not None:
+            if "limit" not in query_args or len(query_args["limit"]) == 0:
+                query_args["limit"] = "*"
+            variables["queryArgs"] = query_args
+        if count_by is not None:
+            variables["countBy"] = count_by
+        if count is not None:
+            variables["count"] = count
 
         return variables
 

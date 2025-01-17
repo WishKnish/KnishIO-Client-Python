@@ -22,7 +22,9 @@ __all__ = (
     'CodeException',
     'WalletShadowException',
     'DecryptException',
-    'BaseError'
+    'BaseError',
+    'WalletCredentialException',
+    'RuleArgumentException'
 )
 
 
@@ -36,7 +38,7 @@ class BaseError(Exception):
     def __int__(self, message: str = None, code: int = 1, *args) -> None:
         self._message = message
         self._code = code
-        super(Exception, self).__init__(self._message, self._code, *args)
+        super(BaseError, self).__init__(self._message, self._code, *args)
 
     @property
     def message(self) -> str:
@@ -219,3 +221,13 @@ class DecryptException(BaseError):
     """
     def __int__(self, message: str = 'Error during decryption.', code: int = 1, *args) -> None:
         super(DecryptException, self).__int__(message, code, *args)
+
+
+class WalletCredentialException(BaseError):
+    def __init__(self, message: str = 'Attempting to create a wallet with no credentials (secret or bundle hash)', code: int = 1, *args):
+        super(WalletCredentialException, self).__int__(message, code, *args)
+
+
+class RuleArgumentException(BaseError):
+    def __init__(self, message: str = 'An incorrect argument!', code: int = 1, *args):
+        super(RuleArgumentException, self).__int__(message, code, *args)

@@ -13,7 +13,8 @@ from knishioclient.query import (
     QueryBalance,
     QueryWalletList,
     QueryMetaType,
-    QueryWalletBundle
+    QueryWalletBundle,
+    QueryMetaTypeViaAtom
 )
 from knishioclient.mutation import (
     Mutation,
@@ -27,7 +28,7 @@ from knishioclient.mutation import (
     MutationCreateWallet,
     MutationCreateMeta
 )
-from knishioclient.models import Wallet, Molecule, Union, Coder
+from knishioclient.models import Wallet, Molecule, Coder
 from knishioclient.libraries.array import array_get, get_signed_atom
 from knishioclient.libraries.crypto import generate_bundle_hash
 from knishioclient.libraries import decimal, strings, crypto
@@ -77,7 +78,7 @@ class KnishIOClient(object):
         self.__secret = None
         self.__bundle = None
         self.__last_molecule_query = None
-        self.__remainder_wallet = None
+        self.__remainder_wallet: Wallet | None = None
         self.__authorization_wallet = None
         self.__server_key = None
         self.__logging = False
@@ -97,7 +98,7 @@ class KnishIOClient(object):
     def reset(self):
         self.__secret = None
         self.__bundle = None
-        self.__remainder_wallet = None
+        self.__remainder_wallet: Wallet | None = None
 
     def bundle(self) -> str:
         if self.__bundle is None:
@@ -129,23 +130,31 @@ class KnishIOClient(object):
     def has_secret(self):
         return self.__secret is not None
 
-    def create_molecule(self, secret: str = None, source_wallet: Wallet = None, remainder_wallet: Wallet = None):
+    def create_molecule(self, secret: str = None, bundle: str = None, source_wallet: Wallet = None, remainder_wallet: Wallet = None):
         secret = secret or self.secret()
+        bundle = bundle or self.bundle()
+
         if source_wallet is None \
-                and self.__remainder_wallet.token not in 'AUTH' \
+                and self.get_remainder_wallet().token not in 'USER' \
                 and self.__last_molecule_query is not None \
                 and self.__last_molecule_query.response() is not None \
                 and self.__last_molecule_query.response().success():
-            source_wallet = self.__remainder_wallet
+            source_wallet = self.get_remainder_wallet()
 
         if source_wallet is None:
             source_wallet = self.get_source_wallet()
 
         self.__remainder_wallet = remainder_wallet or Wallet.create(
-            secret, source_wallet.token, source_wallet.batchId, source_wallet.characters
+            secret, bundle, source_wallet.token, source_wallet.batchId, source_wallet.characters
         )
-
-        return Molecule(secret, source_wallet, self.__remainder_wallet, self.cell_slug())
+        molecule = Molecule(
+            secret=secret,
+            bundle=bundle,
+            source_wallet=source_wallet,
+            remainder_wallet=self.get_remainder_wallet(),
+            cell_slug=self.cell_slug()
+        )
+        return molecule
 
     def create_molecule_mutation(self, mutation_class, molecule: Molecule = None) -> Mutation:
         molecule = molecule or self.create_molecule()
@@ -179,7 +188,7 @@ class KnishIOClient(object):
     def query_continu_id(self, bundle_hash: str):
         return self.create_query(QueryContinuId).execute({'bundle': bundle_hash})
 
-    def get_remainder_wallet(self):
+    def get_remainder_wallet(self) -> Wallet:
         return self.__remainder_wallet
 
     def query_balance(self, token_slug: str, bundle_hash: str = None):
@@ -190,24 +199,70 @@ class KnishIOClient(object):
             'token': token_slug
         })
 
-    def create_meta(self, meta_type, meta_id, metadata=None):
+    def create_meta(
+        self,
+        meta_type: str,
+        meta_id: str,
+        metadata = None,
+        policy: dict = None
+    ):
         if metadata is None:
             metadata = {}
 
         query = self.create_molecule_mutation(
             MutationCreateMeta,
-            self.create_molecule(self.secret(), self.get_source_wallet())
+            self.create_molecule(secret=self.secret(), source_wallet=self.get_source_wallet())
         )
 
-        query.fill_molecule(meta_type, meta_id, metadata)
+        query.fill_molecule(meta_type=meta_type, meta_id=meta_id, metadata=metadata, policy=policy)
 
         return query.execute()
 
-    def query_meta(self, meta_type: str = None, meta_id: Union[str, bytes, int, float] = None,
-                   key: Union[str, bytes] = None, value: Union[str, bytes, int, float] = None,
-                   latest: bool = None, fields=None, filter: Union[list, dict] = None):
-        query = self.create_query(QueryMetaType)
-        variables = QueryMetaType.create_variables(meta_type, meta_id, key, value, latest, filter)
+    def query_meta(
+            self,
+            meta_type: str = None,
+            meta_id: str | bytes | int | float = None,
+            key: str | bytes | None = None,
+            value: str | bytes | int | float = None,
+            latest: bool = None,
+            fields: dict = None,
+            filter: list | dict | None = None,
+            query_args: dict = None,
+            count: str = None,
+            count_by: str = None,
+            through_atom: bool = True,
+            values: list = None,
+            keys: list = None,
+            atom_values: list = None
+    ):
+        if through_atom:
+            query = self.create_query(QueryMetaTypeViaAtom)
+            variables = QueryMetaTypeViaAtom.create_variables(
+                meta_type=meta_type,
+                meta_id=meta_id,
+                key=key,
+                value=value,
+                latest=latest,
+                filter=filter,
+                query_args=query_args,
+                count_by=count_by,
+                values=values,
+                keys=keys,
+                atom_values=atom_values
+            )
+        else:
+            query = self.create_query(QueryMetaType)
+            variables = QueryMetaType.create_variables(
+                meta_type=meta_type,
+                meta_id=meta_id,
+                key=key,
+                value=value,
+                latest=latest,
+                filter=filter,
+                query_args=query_args,
+                count_by=count_by,
+                count=count
+            )
 
         return query.execute(variables, fields).payload()
 
@@ -218,7 +273,7 @@ class KnishIOClient(object):
 
         return query.execute()
 
-    def query_wallets(self, bundle_hash: Union[str, bytes] = None, unspent: bool = True):
+    def query_wallets(self, bundle_hash: str | bytes | None = None, unspent: bool = True):
         wallet_query = self.create_query(QueryWalletList)
         response = wallet_query.execute({
             'bundleHash': bundle_hash or self.bundle(),
@@ -245,8 +300,8 @@ class KnishIOClient(object):
 
         return response
 
-    def create_token(self, token_slug: str, initial_amount: Union[int, float],
-                     token_metadata: Union[list, dict] = None):
+    def create_token(self, token_slug: str, initial_amount: int | float,
+                     token_metadata: list | dict | None = None):
         data_metas = token_metadata or {}
         recipient_wallet = Wallet(self.secret(), token_slug)
 
@@ -258,8 +313,8 @@ class KnishIOClient(object):
 
         return query.execute()
 
-    def request_tokens(self, token_slug: str, requested_amount: Union[int, float],
-                       to: Union[str, bytes, Wallet] = None, metas: Union[list, dict] = None):
+    def request_tokens(self, token_slug: str, requested_amount: int | float,
+                       to: str | bytes | Wallet | None = None, metas: list | dict | None = None):
         data_metas = metas or {}
         meta_type = None
         meta_id = None
@@ -293,7 +348,7 @@ class KnishIOClient(object):
 
         return query.execute()
 
-    def query_shadow_wallets(self, token_slug: str = 'KNISH', bundle_hash: Union[str, bytes] = None):
+    def query_shadow_wallets(self, token_slug: str = 'KNISH', bundle_hash: str | bytes | None = None):
         query = self.create_query(QueryWalletList)
         response = query.execute({
             'bundleHash': bundle_hash or self.bundle(),
@@ -308,16 +363,16 @@ class KnishIOClient(object):
 
         return query.execute()
 
-    def query_bundle(self, bundle_hash: Union[str, bytes] = None, key: Union[str, bytes] = None,
-                     value: Union[str, bytes, int, float] = None, latest: bool = True, fields=None):
+    def query_bundle(self, bundle_hash: str | bytes | None = None, key: str | bytes | None = None,
+                     value: str | bytes | int | float | None = None, latest: bool = True, fields=None):
         query = self.create_query(QueryWalletBundle)
         variables = QueryWalletBundle.create_variables(bundle_hash or self.bundle(), key, value, latest)
         response = query.execute(variables, fields)
 
         return response.payload()
 
-    def transfer_token(self, wallet_object_or_bundle_hash: Union[Wallet, str, bytes], token_slug: str,
-                       amount: Union[int, float]):
+    def transfer_token(self, wallet_object_or_bundle_hash: Wallet | str | bytes, token_slug: str,
+                       amount: int | float):
         from_wallet = self.query_bundle(token_slug).payload()
 
         if from_wallet is None or decimal.cmp(strings.number(from_wallet.balance), amount) < 0:

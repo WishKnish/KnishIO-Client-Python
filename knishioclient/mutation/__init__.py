@@ -54,8 +54,8 @@ class MutationProposeMolecule(Mutation):
 
 
 class MutationCreateMeta(MutationProposeMolecule):
-    def fill_molecule(self, meta_type: str, meta_id: Union[str, int], metadata: Union[List, Dict]):
-        self.molecule().init_meta(metadata, meta_type, meta_id)
+    def fill_molecule(self, meta_type: str, meta_id: Union[str, int], metadata: List | Dict, policy: Dict = None):
+        self.molecule().init_meta(meta=metadata, meta_type=meta_type, meta_id=meta_id, policy=policy)
         self.molecule().sign()
         self.molecule().check()
 
