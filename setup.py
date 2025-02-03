@@ -3,8 +3,8 @@ import sys
 import pathlib
 from setuptools import find_packages, setup
 
-if sys.version_info < (3, 6, 0):
-    raise RuntimeError("KnishIOClient requires Python 3.6.0+")
+if sys.version_info < (3, 11, 0):
+    raise RuntimeError("KnishIOClient requires Python 3.11.0+")
 
 txt = (pathlib.Path(__file__).parent / 'knishioclient' / '__init__.py').read_text('utf-8')
 
@@ -22,11 +22,6 @@ setup(name='knishioclient',
           'Development Status :: 2 - Pre-Alpha',
           'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
           'Programming Language :: Python :: 3 :: Only',
-          'Programming Language :: Python :: 3.6',
-          'Programming Language :: Python :: 3.7',
-          'Programming Language :: Python :: 3.8',
-          'Programming Language :: Python :: 3.9',
-          'Programming Language :: Python :: 3.10',
           'Programming Language :: Python :: 3.11',
           'Programming Language :: Python :: 3.12',
           'Topic :: Utilities',

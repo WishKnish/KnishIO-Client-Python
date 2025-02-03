@@ -3,9 +3,9 @@
 import time
 import logging
 import math
-import random
+import secrets
 
-from typing import Union, List, Any
+from typing import List, Any
 from numpy import array, multiply, add, mod, floor_divide, equal
 from libnacl.encode import hex_decode, hex_encode, base64_encode, base64_decode
 
@@ -30,11 +30,11 @@ def random_string(length: int = 256, alphabet: str = 'abcdef0123456789') -> str:
     :param alphabet: str default 'abcdef0123456789'
     :return: str
     """
-    return ''.join(random.choice(alphabet) for _ in range(length))
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 
 def charset_base_convert(src: str, from_base: int, to_base: int, src_symbol_table: str = None,
-                         dest_symbol_table: str = None) -> Union[bool, str, int]:
+                         dest_symbol_table: str = None) -> bool | str | int:
     """
     Convert charset between bases and alphabets
 
@@ -43,7 +43,7 @@ def charset_base_convert(src: str, from_base: int, to_base: int, src_symbol_tabl
     :param to_base: int
     :param src_symbol_table: str default None
     :param dest_symbol_table: str default None
-    :return: Union[bool, str, int]
+    :return: bool | str | int
     """
 
     base_symbols = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz~`!@#$%^&*()-_=+[{]}\\|;:\'",<.>/?¿¡'
@@ -123,12 +123,12 @@ def decode(value: Any, code: str = 'utf-8') -> str:
     return value.decode(code) if isinstance(value, bytes) else value
 
 
-def number(value: Union[float, int, str]) -> float:
+def number(value: float | int | str) -> float:
     """
     Convert string to number
 
-    :param value: Union[float, int, str]
-    :return: Union[float, int]
+    :param value: float | int | str
+    :return: float
     """
     var = str(value)
     try:
