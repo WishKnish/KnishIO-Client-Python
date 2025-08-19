@@ -3,12 +3,11 @@
 import math
 import string
 import base64
-import os
 import numpy as np
 from hashlib import shake_256 as shake
 from json import JSONDecoder, JSONEncoder, dumps, JSONDecodeError, loads
 
-from numpy import array, add
+# Removed direct imports - using np.array and np.add instead
 from typing import List, Dict, Any, Tuple
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -594,8 +593,8 @@ class Wallet(object):
         """
         # Converting secret to bigInt
         # Adding new position to the user secret to produce the indexed key
-        indexed_key = '%x' % add(array([int(secret, 16)], dtype='object'),
-                                 array([int(position, 16)], dtype='object'))[0]
+        indexed_key = '%x' % np.add(np.array([int(secret, 16)], dtype='object'),
+                                    np.array([int(position, 16)], dtype='object'))[0]
         # Hashing the indexed key to produce the intermediate key
         intermediate_key_sponge = shake()
         intermediate_key_sponge.update(indexed_key.encode('utf-8'))
@@ -1064,7 +1063,7 @@ class Molecule(MoleculeStructure):
                 self.remainderWallet.address,
                 "V",
                 self.sourceWallet.token,
-                float(self.sourceWallet.balance) - value,
+                float(self.sourceWallet.balance) - value,  # Correct remainder calculation
                 self.remainderWallet.batchId,
                 'walletBundle' if wallet_bundle else None,
                 wallet_bundle,
@@ -1131,7 +1130,7 @@ class Molecule(MoleculeStructure):
                 self.remainderWallet.address,
                 'V',
                 self.sourceWallet.token,
-                float(self.sourceWallet.balance) - value,
+                float(self.sourceWallet.balance) - value,  # Correct remainder calculation
                 self.remainderWallet.batchId,
                 'walletBundle',
                 self.sourceWallet.bundle,

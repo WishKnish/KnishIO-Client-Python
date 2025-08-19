@@ -72,14 +72,28 @@ def generate_batch_id(molecular_hash: str = None, index=None) -> str:
     return strings.random_string(64)
 
 
-def generate_secret(seed: str | bytes | None = None, length: int = 1024):
+def generate_secret(seed: str | bytes | None = None, length: int = 2048):
     if seed:
         sponge = shake(strings.encode(seed))
-        return sponge.hexdigest(length)
-    return strings.random_string(length * 2)
+        return sponge.hexdigest(length // 2)
+    return strings.random_string(length)
 
 
 def keypair_from_seed(seed: str) -> Tuple[bytes, bytes]:
     seed_bytes = bytes.fromhex(generate_secret(seed, 16)) + b"\x00" * 16
     return ml_kem768.keygen(seed_bytes, b"\x00" * 32)
+
+
+def shake256(input_data: str, output_length: int) -> str:
+    """
+    SHAKE256 hash function
+    
+    :param input_data: The input string to hash
+    :param output_length: The desired output length in bits
+    :return: The hex-encoded hash
+    """
+    sponge = shake()
+    sponge.update(strings.encode(input_data))
+    # output_length is in bits, hexdigest expects bytes
+    return sponge.hexdigest(output_length // 8)
 

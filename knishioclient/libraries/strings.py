@@ -6,7 +6,7 @@ import math
 import secrets
 
 from typing import List, Any
-from numpy import array, multiply, add, mod, floor_divide, equal
+import numpy as np
 from libnacl.encode import hex_decode, hex_encode, base64_encode, base64_decode
 
 
@@ -57,12 +57,12 @@ def charset_base_convert(src: str, from_base: int, to_base: int, src_symbol_tabl
             )
         )
 
-    value, big_integer_zero, big_integer_to_base, big_integer_from_base = (array([0], dtype='object'),
-                                                                           array([0], dtype='object'),
-                                                                           array([to_base], dtype='object'),
-                                                                           array([from_base], dtype='object'))
+    value, big_integer_zero, big_integer_to_base, big_integer_from_base = (np.array([0], dtype='object'),
+                                                                           np.array([0], dtype='object'),
+                                                                           np.array([to_base], dtype='object'),
+                                                                           np.array([from_base], dtype='object'))
     for symbol in src:
-        value = add(multiply(value, big_integer_from_base), array([src_symbol_table.index(symbol)], dtype='object'))
+        value = np.add(np.multiply(value, big_integer_from_base), np.array([src_symbol_table.index(symbol)], dtype='object'))
 
     if value[0] <= 0:
         return 0
@@ -70,10 +70,10 @@ def charset_base_convert(src: str, from_base: int, to_base: int, src_symbol_tabl
     condition, target = True, ''
 
     while condition:
-        idx = mod(value, big_integer_to_base)
+        idx = np.mod(value, big_integer_to_base)
         target = '%s%s' % (dest_symbol_table[idx[0]], target)
-        value = floor_divide(value, big_integer_to_base)
-        condition = not equal(value, big_integer_zero)[0]
+        value = np.floor_divide(value, big_integer_to_base)
+        condition = not np.equal(value, big_integer_zero)[0]
 
     return target
 
