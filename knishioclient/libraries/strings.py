@@ -82,6 +82,12 @@ def current_time_millis() -> str:
     """
     :return: str
     """
+    # Support deterministic testing with KNISHIO_FIXED_TIMESTAMP environment variable
+    import os
+    fixed_timestamp = os.getenv('KNISHIO_FIXED_TIMESTAMP')
+    if fixed_timestamp:
+        return str(int(fixed_timestamp) * 1000)  # Convert from seconds to milliseconds
+    
     return str(sum(map(lambda x: int(x), str(time.time() * 1000).split('.'))))
 
 
@@ -130,8 +136,12 @@ def number(value: float | int | str) -> float:
     :param value: float | int | str
     :return: float
     """
+    # Handle None, empty strings, and other invalid values gracefully
+    if value is None or value == "" or value == "null":
+        return 0.0
+    
     var = str(value)
     try:
         return float(var)
-    except ValueError:
+    except (ValueError, TypeError):
         return 0.0
