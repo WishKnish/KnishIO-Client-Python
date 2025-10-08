@@ -48,27 +48,6 @@ from knishioclient.models import Wallet, Molecule, Atom
 from knishioclient.libraries import crypto
 ```
 
-## Quantum-Resistant Cryptography
-
-This Python SDK implements ML-KEM768 (NIST FIPS 203) post-quantum cryptography for message encryption, ensuring 100% cross-SDK compatibility with JavaScript, TypeScript, Kotlin, PHP, Rust, C, and C++ implementations.
-
-### Bridge Architecture
-
-The Python SDK uses a **Node.js subprocess bridge** to @noble/post-quantum, the same battle-tested cryptographic library used by all other Knish.IO SDKs. This architecture guarantees:
-
-- ✅ **100% Cross-SDK Compatibility**: Python can encrypt/decrypt messages with any other SDK
-- ✅ **Cryptographic Consistency**: Identical implementation across all platforms
-- ✅ **Future-Proof**: Automatic updates when @noble/post-quantum is upgraded
-- ✅ **Battle-Tested**: Same proven library used in production by JavaScript/TypeScript SDKs
-
-**How it works:**
-1. Python code calls `NobleMLKEMBridge` wrapper class
-2. Bridge spawns Node.js subprocess executing `bin/noble-mlkem-bridge.js`
-3. JavaScript bridge uses @noble/post-quantum for ML-KEM768 operations
-4. Results are returned to Python via JSON
-
-This pattern is proven in production by the PHP SDK and ensures perfect cryptographic alignment.
-
 ## Basic Usage
 
 The purpose of the Knish.IO SDK is to expose various ledger functions to new or existing applications.
@@ -477,105 +456,6 @@ This method involves individually building Atoms and Molecules, triggering the s
     1. `QueryBalance` and `QueryContinuId` -> returns a `Wallet` instance
     2. `QueryWalletList` -> returns a list of `Wallet` instances
     3. `MutationProposeMolecule`, `MutationRequestAuthorization`, `MutationCreateIdentifier`, `MutationLinkIdentifier`, `MutationClaimShadowWallet`, `MutationCreateToken`, `MutationRequestTokens`, and `MutationTransferTokens` -> returns molecule metadata
-
-## Demo System
-
-This SDK includes a comprehensive demo system with practical examples. Explore the demo folder to see real implementations:
-
-```bash
-# Navigate to the demo directory
-cd demo
-
-# Run specific demo scripts
-python basic_usage.py
-python wallet_management.py
-python token_operations.py
-python metadata_management.py
-python message_encryption.py
-python complete_workflow.py
-```
-
-The demo system provides:
-- **Basic usage examples** - Client initialization and authentication
-- **Wallet management** - Creation, validation, and operations
-- **Token operations** - Creation, transfers, and lifecycle management
-- **Metadata management** - Asset metadata and storage
-- **Message encryption** - Quantum-resistant communication
-- **Complete workflows** - End-to-end transaction examples
-
-See `demo/README.md` for complete setup instructions and configuration options.
-
-## Troubleshooting
-
-### Node.js Not Found Error
-
-If you encounter an error like:
-```
-RuntimeError: Node.js not found. Please install Node.js to use ML-KEM-768 cryptography.
-```
-
-**Solution**: Install Node.js 16 or higher from https://nodejs.org/
-
-### @noble/post-quantum Not Installed Error
-
-If you encounter an error like:
-```
-RuntimeError: @noble/post-quantum not installed. Please run:
-  cd /path/to/KnishIO-Client-Python/bin
-  npm install
-```
-
-**Solution**: Navigate to the `bin` directory and run `npm install`:
-```bash
-cd bin
-npm install
-cd ..
-```
-
-### Cross-SDK Message Decryption Failures
-
-The Python SDK uses the Node.js bridge to ensure 100% compatibility. If you experience decryption issues:
-
-1. **Verify Node.js version**: Run `node --version` (must be 16+)
-2. **Verify @noble/post-quantum installation**: Check that `bin/node_modules/@noble/post-quantum` exists
-3. **Reinstall dependencies**:
-   ```bash
-   cd bin
-   rm -rf node_modules package-lock.json
-   npm install
-   cd ..
-   ```
-
-### Performance Considerations
-
-The Node.js bridge adds ~50-100ms overhead per ML-KEM768 operation due to subprocess spawning. For high-throughput applications:
-
-- Consider batch encryption operations
-- Implement connection pooling if building custom bridges
-- The overhead is acceptable for most use cases (authentication, message encryption)
-
-## Security
-
-This SDK implements quantum-resistant cryptography for future-proof security:
-
-- All signatures use XMSS (post-quantum secure)
-- Encryption uses ML-KEM768 via Node.js bridge to @noble/post-quantum (NIST approved)
-- One-time keys prevent signature reuse
-- Secure random generation for all cryptographic operations
-- Node.js subprocess isolation for cryptographic operations
-
-For security issues, please email security@wishknish.com instead of using the issue tracker.
-
-## Features
-
-- 🚀 **Post-Blockchain Architecture**: DAG-based distributed ledger with organism-inspired transaction model
-- 🔐 **Quantum-Resistant Security**: XMSS signatures and ML-KEM768 (NIST FIPS-203) encryption
-- ⚡ **Network-Bound Scalability**: Performance improves as the network grows
-- 🔄 **Cross-Platform Compatibility**: 100% cryptographic compatibility with JavaScript, Kotlin, PHP, and C SDKs via Node.js bridge
-- 📦 **Comprehensive SDK**: Complete API for wallets, tokens, metadata, and transactions
-- 🧬 **Molecular Composition**: Atomic operations grouped into molecular transactions
-- 🏢 **Cellular Architecture**: Application-specific sub-ledgers with isolation
-- 🌉 **Noble Crypto Bridge**: Same battle-tested cryptography as JavaScript/TypeScript SDKs
 
 ## Getting Help
 
