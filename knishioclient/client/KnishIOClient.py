@@ -707,7 +707,7 @@ class KnishIOClient(object):
             
             validation_result = config.validate()
             if not validation_result.success:
-                return StandardResponse.failure(
+                return StandardResponse.create_failure(
                     f"MetaConfig validation failed: {validation_result.error.message}",
                     "create_meta_enhanced",
                     config,
@@ -734,14 +734,14 @@ class KnishIOClient(object):
             
             # Convert legacy response to StandardResponse
             if legacy_response.success():
-                return StandardResponse.success(
+                return StandardResponse.create_success(
                     legacy_response.payload(),
                     "create_meta_enhanced",
                     legacy_response.data(),
                     time.time() - start_time
                 )
             else:
-                return StandardResponse.failure(
+                return StandardResponse.create_failure(
                     legacy_response.reason() or "Meta creation failed",
                     "create_meta_enhanced",
                     legacy_response.data(),
@@ -749,7 +749,7 @@ class KnishIOClient(object):
                 )
                 
         except Exception as e:
-            return StandardResponse.failure(
+            return StandardResponse.create_failure(
                 f"Meta creation error: {str(e)}",
                 "create_meta_enhanced",
                 None,
@@ -777,7 +777,7 @@ class KnishIOClient(object):
             
             validation_result = config.validate()
             if not validation_result.success:
-                return StandardResponse.failure(
+                return StandardResponse.create_failure(
                     f"TokenConfig validation failed: {validation_result.error.message}",
                     "create_token_enhanced",
                     config,
@@ -798,14 +798,14 @@ class KnishIOClient(object):
             legacy_response = mutation.execute()
             
             if legacy_response.success():
-                return StandardResponse.success(
+                return StandardResponse.create_success(
                     legacy_response.payload(),
                     "create_token_enhanced",
                     legacy_response.data(),
                     time.time() - start_time
                 )
             else:
-                return StandardResponse.failure(
+                return StandardResponse.create_failure(
                     legacy_response.reason() or "Token creation failed",
                     "create_token_enhanced",
                     legacy_response.data(),
@@ -813,7 +813,7 @@ class KnishIOClient(object):
                 )
                 
         except Exception as e:
-            return StandardResponse.failure(
+            return StandardResponse.create_failure(
                 f"Token creation error: {str(e)}",
                 "create_token_enhanced",
                 None,
@@ -837,14 +837,14 @@ class KnishIOClient(object):
             legacy_response = query.execute()
             
             if legacy_response.success():
-                return StandardResponse.success(
+                return StandardResponse.create_success(
                     legacy_response.payload(),
                     "query_balance_enhanced",
                     legacy_response.data(),
                     time.time() - start_time
                 )
             else:
-                return StandardResponse.failure(
+                return StandardResponse.create_failure(
                     legacy_response.reason() or "Balance query failed",
                     "query_balance_enhanced",
                     legacy_response.data(),
@@ -852,7 +852,7 @@ class KnishIOClient(object):
                 )
                 
         except Exception as e:
-            return StandardResponse.failure(
+            return StandardResponse.create_failure(
                 f"Balance query error: {str(e)}",
                 "query_balance_enhanced",
                 None,
@@ -888,7 +888,7 @@ class KnishIOClient(object):
         validation_result = ConfigUtils.validate_config(config, config_type)
         
         if not validation_result.success:
-            return StandardResponse.failure(
+            return StandardResponse.create_failure(
                 f"{config_type} validation failed: {validation_result.error.message}",
                 f"validate_and_execute_{config_type}"
             )
@@ -896,7 +896,7 @@ class KnishIOClient(object):
         try:
             return operation_func(validation_result.data)
         except Exception as e:
-            return StandardResponse.failure(
+            return StandardResponse.create_failure(
                 f"Operation failed: {str(e)}",
                 f"validate_and_execute_{config_type}"
             )

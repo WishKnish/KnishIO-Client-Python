@@ -336,7 +336,7 @@ class EnhancedPythonIntegrationTest:
                 colorlog(f"Error details: {validation_result.error.message}", Colors.GRAY, 2)
             
             # Test StandardResponse error creation
-            error_response = StandardResponse.failure(
+            error_response = StandardResponse.create_failure(
                 "Test error message",
                 "test_operation",
                 {"test": "data"}
