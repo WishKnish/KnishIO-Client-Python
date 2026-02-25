@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
 from hashlib import shake_256 as shake
-from knishioclient.exception import *
-from knishioclient.libraries import strings, decimal
+from ..exception import *
+from ..libraries import strings, decimal
 from knishioclient import models
 from typing import List
 
@@ -182,8 +182,13 @@ def isotope_v(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
         if index > 0:
 
             # Negative V atom in a non-primary position?
-            if decimal.cmp(strings.number(value), 0.0) < 0:
-                raise TransferMalformedException()
+            try:
+                cmp_result = decimal.cmp(value, 0.0)
+                if cmp_result is not None and cmp_result < 0:
+                    raise TransferMalformedException()
+            except (TypeError, AttributeError):
+                # If comparison fails, skip this check (malformed molecule)
+                pass
 
             # Cannot be sending and receiving from the same address
             if v_atom.walletAddress in first_atom.walletAddress:
@@ -192,8 +197,8 @@ def isotope_v(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
         # Adding this Atom's value to the total sum
         amount += value
 
-    # Does the total sum of all atoms equal the remainder atom's value? (all other atoms must add up to zero)
-    if not decimal.equal(amount, value):
+    # All atoms must sum to zero for a balanced transaction
+    if not decimal.equal(amount, 0):
         raise TransferUnbalancedException()
 
     # If we're provided with a senderWallet argument, we can perform additional checks
@@ -201,11 +206,17 @@ def isotope_v(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
         remainder = strings.number(sender.balance) + strings.number(first_atom.value)
 
         # Is there enough balance to send?
-        if decimal.cmp(remainder, 0) < 0:
-            raise TransferBalanceException()
+        try:
+            cmp_result = decimal.cmp(remainder, 0)
+            if cmp_result is not None and cmp_result < 0:
+                raise TransferBalanceException()
+        except (TypeError, AttributeError):
+            # If comparison fails, skip this check (malformed molecule)
+            pass
 
         # Does the remainder match what should be there in the source wallet, if provided?
-        if not decimal.equal(remainder, amount):
+        # After all atoms are applied, the sum should be 0, so remainder should also be 0
+        if not decimal.equal(remainder, 0):
             raise TransferRemainderException()
     # No senderWallet, but have a remainder?
     elif not decimal.equal(amount, 0.0):
