@@ -718,14 +718,14 @@ class Molecule(MoleculeStructure):
         atom_meta = AtomMeta(meta)
         atom_meta.add_policy(policy)
 
-        wallet = Wallet.create(
-            secret=self.secret(),
-            bundle=self.sourceWallet.bundle,
-            token="USER"
-        )
-
+        # F-3 (cross-SDK parity, 2026-06-03): sign the policy (R-isotope) atom from the
+        # established ContinuID source wallet, NOT a freshly-created Wallet.create() at a
+        # random position. As the signing atom in createPolicy(), a fresh-wallet position
+        # is unknown to the validator -> "ContinuID chain validation failed: signing
+        # position ... not found as wallet". Mirrors init_rule_creation, which uses
+        # self.sourceWallet.
         self.add_atom(Atom.create(
-            wallet=wallet,
+            wallet=self.sourceWallet,
             isotope="R",
             meta_type=meta_type,
             meta_id=meta_id,
