@@ -76,6 +76,33 @@ def normalized_sum(base17_str: str) -> int:
 
 
 # ===========================================================================
+# 0. generateSecret cross-SDK parity (Batch AO) — seed -> 2048 hex secret
+# ===========================================================================
+
+class TestGenerateSecret(unittest.TestCase):
+    """generate_secret(seed) must produce the canonical 2048-char secret,
+    byte-identical to JS/TS/Rust/PHP/Kotlin.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tests = VECTORS["vectors"]["generate_secret"]["tests"]
+
+    def test_generate_secret(self):
+        for tv in self.tests:
+            with self.subTest(name=tv["name"]):
+                secret = crypto.generate_secret(tv["seed"])
+                self.assertEqual(
+                    len(secret), tv["length"],
+                    f"generate_secret length mismatch for {tv['name']}",
+                )
+                self.assertEqual(
+                    secret, tv["expectedSecret"],
+                    f"generate_secret value mismatch (cross-SDK parity) for {tv['name']}",
+                )
+
+
+# ===========================================================================
 # 1. ContinuID Chain Relay Tests  (Patent Claims 5, 12-14)
 # ===========================================================================
 
