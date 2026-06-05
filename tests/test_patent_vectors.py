@@ -28,6 +28,7 @@ if SDK_ROOT not in sys.path:
     sys.path.insert(0, SDK_ROOT)
 
 from knishioclient.libraries import crypto, strings
+from knishioclient.models.Atom import Atom
 from knishioclient.models.Wallet import Wallet
 from knishioclient.models.MoleculeStructure import MoleculeStructure
 
@@ -99,6 +100,28 @@ class TestGenerateSecret(unittest.TestCase):
                 self.assertEqual(
                     secret, tv["expectedSecret"],
                     f"generate_secret value mismatch (cross-SDK parity) for {tv['name']}",
+                )
+
+
+class TestAtomValueFormat(unittest.TestCase):
+    """An atom's numeric value must serialize as an integer string (the validator
+    parses V/B/F values as i128); a whole-number float must NOT carry a trailing
+    '.0'. Cross-SDK parity lock (Batch AQ) -- Python str(float) used to emit
+    '1000.0', which the validator rejected.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tests = VECTORS["vectors"]["atom_value_format"]["tests"]
+
+    def test_atom_value_format(self):
+        for tv in self.tests:
+            with self.subTest(name=tv["name"]):
+                # Construct with a FLOAT to exercise the bug path (str(float)).
+                atom = Atom("pos", "addr", "V", "TOKEN", value=float(tv["value"]))
+                self.assertEqual(
+                    atom.value, tv["expected"],
+                    f"atom value format mismatch (cross-SDK parity) for {tv['name']}",
                 )
 
 

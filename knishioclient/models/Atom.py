@@ -10,6 +10,21 @@ from .Meta import Meta
 from .AtomMeta import AtomMeta
 
 
+def _format_value(value: 'str | int | float') -> str:
+    """Serialize an atom value the way JS String(Number) does.
+
+    Whole-number floats must NOT carry a trailing ".0": the validator parses
+    V/B/F values as i128 (integer-only), so "1000.0" would fail to parse and the
+    molecule would be rejected. JS/TS/PHP/Rust all emit "1000"; Python str(1000.0)
+    would emit "1000.0" — this normalizes it to match (cross-SDK parity).
+    """
+    if isinstance(value, bool):  # bool is an int subclass — keep its str() form
+        return str(value)
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
 class Atom(Base):
     """class Atom"""
 
@@ -36,7 +51,7 @@ class Atom(Base):
         self.walletAddress = wallet_address
         self.isotope = isotope
         self.token = token
-        self.value = str(value) if not isinstance(value, str) and value is not None else value
+        self.value = _format_value(value) if not isinstance(value, str) and value is not None else value
         self.batchId = batch_id
 
         self.metaType = meta_type
