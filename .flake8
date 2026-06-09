@@ -1,0 +1,15 @@
+[flake8]
+# Lint source only — never third-party/build artifacts (a local ./venv would
+# otherwise drag in numpy/pip/pycparser syntax noise under newer Python).
+exclude =
+    .git,
+    __pycache__,
+    venv,
+    .venv,
+    env,
+    build,
+    dist,
+    *.egg-info,
+    docs
+# GitHub's editor is 127 chars wide; treat that as the advisory line length.
+max-line-length = 127
