@@ -125,3 +125,7 @@ __pycache__/
 *.iml
 
 .claude
+.DS_Store
+
+# Node deps for the bin/ ML-KEM bridge (lockfile is committed; deps are not)
+bin/node_modules/
