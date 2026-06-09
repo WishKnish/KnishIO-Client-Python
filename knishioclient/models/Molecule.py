@@ -899,26 +899,37 @@ class Molecule(MoleculeStructure):
         if self.sourceWallet.balance - amount < 0:
             raise BalanceInsufficientException()
         
-        # Create a buffer wallet
+        # Create a buffer wallet (use kwargs: Python's Wallet.create signature is
+        # (secret, bundle, token, batch_id, ...) — passing token positionally would
+        # land it in `bundle` and leave position None, breaking key generation)
         buffer_wallet = Wallet.create(
-            self.secret,
-            self.sourceWallet.token,
-            self.sourceWallet.batchId
+            secret=self.secret(),
+            token=self.sourceWallet.token,
+            batch_id=self.sourceWallet.batchId
         )
         if trade_rates:
             buffer_wallet.tradeRates = trade_rates
         
-        # Remove tokens from source
+        # Remove tokens from source (debit the FULL balance, not just the deposit
+        # amount; the change is routed to the remainder atom below so V+B sum to 0).
+        # Atom args: position, wallet_address, isotope, token, value, batch_id,
+        # meta_type, meta_id, meta, ots_fragment, index — mirroring init_value.
         self.atoms.append(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
                 'V',
                 self.sourceWallet.token,
-                value=-amount
+                -float(self.sourceWallet.balance),
+                self.sourceWallet.batchId,
+                None,
+                None,
+                self.final_metas({}),
+                None,
+                self.generate_index()
             )
         )
-        
+
         # Add tokens to buffer
         self.atoms.append(
             Atom(
@@ -926,22 +937,30 @@ class Molecule(MoleculeStructure):
                 buffer_wallet.address,
                 'B',
                 self.sourceWallet.token,
+                amount,
+                buffer_wallet.batchId,
                 'walletBundle',
-                self.sourceWallet.bundleHash,
-                amount
+                self.sourceWallet.bundle,
+                self.final_metas({}, buffer_wallet),
+                None,
+                self.generate_index()
             )
         )
-        
-        # Add remainder
+
+        # Add remainder (the change from the full-balance debit)
         self.atoms.append(
             Atom(
                 self.remainderWallet.position,
                 self.remainderWallet.address,
                 'V',
                 self.sourceWallet.token,
+                float(self.sourceWallet.balance) - amount,
+                self.remainderWallet.batchId,
                 'walletBundle',
-                self.sourceWallet.bundleHash,
-                self.sourceWallet.balance - amount
+                self.sourceWallet.bundle,
+                self.final_metas({}, self.remainderWallet),
+                None,
+                self.generate_index()
             )
         )
         

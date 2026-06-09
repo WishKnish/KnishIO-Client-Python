@@ -30,6 +30,7 @@ if SDK_ROOT not in sys.path:
 from knishioclient.libraries import crypto, strings
 from knishioclient.models.Atom import Atom
 from knishioclient.models.Wallet import Wallet
+from knishioclient.models.Molecule import Molecule
 from knishioclient.models.MoleculeStructure import MoleculeStructure
 
 
@@ -518,6 +519,49 @@ class TestWOTSRoundtrip(unittest.TestCase):
                     tv["expectedVerified"],
                     "Vector says verification should succeed",
                 )
+
+
+# ---------------------------------------------------------------------------
+# Buffer deposit conservation (cross-SDK parity, Batch BF)
+# ---------------------------------------------------------------------------
+
+class TestBufferDepositConservation(unittest.TestCase):
+    """init_deposit_buffer must debit the FULL source balance so a partial
+    buffer deposit still conserves (sum V+B = 0), matching the JS/PHP/TS
+    reference. Pre-fix Python debited only -amount (and referenced a
+    nonexistent Wallet.bundleHash) -> non-conserving / AttributeError."""
+
+    SECRET = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+
+    def test_buffer_deposit_conservation(self):
+        for tv in VECTORS["vectors"]["buffer_deposit_conservation"]["tests"]:
+            with self.subTest(name=tv["name"]):
+                source = Wallet.create(secret=self.SECRET, token="BUFTOK")
+                source.balance = tv["sourceBalance"]
+                molecule = Molecule(
+                    secret=self.SECRET,
+                    bundle=source.bundle,
+                    source_wallet=source,
+                    cell_slug="buftest",
+                )
+                molecule.init_deposit_buffer(tv["amount"], {})
+
+                total = 0
+                v_values = []
+                b_value = None
+                for atom in molecule.atoms:
+                    if atom.isotope in ("V", "B"):
+                        total += int(atom.value)
+                        if atom.isotope == "V":
+                            v_values.append(atom.value)
+                        else:
+                            b_value = atom.value
+
+                self.assertEqual(tv["expectedSum"], str(total), "sum V+B")
+                # Emit order: source V (full-balance debit), buffer B (+amount), remainder V (+change).
+                self.assertEqual(tv["expectedSourceValue"], v_values[0], "source V")
+                self.assertEqual(tv["expectedBufferValue"], b_value, "buffer B")
+                self.assertEqual(tv["expectedRemainderValue"], v_values[1], "remainder V")
 
 
 # ===========================================================================
