@@ -25,7 +25,8 @@ class Molecule(MoleculeStructure):
             bundle: str = None,
             source_wallet: Wallet = None,
             remainder_wallet: Wallet = None,
-            cell_slug: str = None
+            cell_slug: str = None,
+            continu_id_position: str = None
     ) -> None:
         """
         :param secret:
@@ -39,6 +40,7 @@ class Molecule(MoleculeStructure):
         self.bundle: str | None = bundle
         self.__secret: str | None = secret
         self.sourceWallet: Wallet | None = source_wallet
+        self.continuIdPosition: str | None = continu_id_position
 
         if remainder_wallet or source_wallet:
             self.remainderWallet = remainder_wallet if remainder_wallet is not None else Wallet.create(
@@ -349,12 +351,25 @@ class Molecule(MoleculeStructure):
             raise Exception(f"Molecule deserialization failed: {str(e)}")
 
     def add_continue_id_atom(self):
+        # Mirror the JS reference (Molecule.js addContinuIdAtom): the ContinuID
+        # I-atom carries previousPosition + the remainder wallet's pubkey/characters.
+        continu_id_meta: Dict[str, Any] = {}
+        previous_position = getattr(self, 'continuIdPosition', None) or (
+            self.sourceWallet.position if self.sourceWallet is not None else None
+        )
+        if previous_position:
+            continu_id_meta['previousPosition'] = previous_position
+        if self.remainderWallet.pubkey:
+            continu_id_meta['pubkey'] = self.remainderWallet.pubkey
+        if self.remainderWallet.characters:
+            continu_id_meta['characters'] = self.remainderWallet.characters
+
         self.add_atom(Atom.create(
             isotope = "I",
             wallet = self.remainderWallet,
             meta_type = "walletBundle",
-            meta_id = self.remainderWallet.bundle
-
+            meta_id = self.remainderWallet.bundle,
+            meta = continu_id_meta
         ))
         return self
 
@@ -493,7 +508,7 @@ class Molecule(MoleculeStructure):
                 self.sourceWallet.batchId,
                 None,
                 None,
-                self.final_metas({}),
+                {},  # JS parity: V-atoms carry no pubkey/characters meta
                 None,
                 self.generate_index()
             )
@@ -509,7 +524,7 @@ class Molecule(MoleculeStructure):
                 recipient.batchId,
                 'walletBundle',
                 recipient.bundle,
-                self.final_metas({}, recipient),
+                {},  # JS parity: V-atoms carry no pubkey/characters meta
                 None,
                 self.generate_index()
             )
@@ -525,7 +540,7 @@ class Molecule(MoleculeStructure):
                 self.remainderWallet.batchId,
                 'walletBundle',
                 self.sourceWallet.bundle,
-                self.final_metas({}, self.remainderWallet),
+                {},  # JS parity: V-atoms carry no pubkey/characters meta
                 None,
                 self.generate_index()
             )
