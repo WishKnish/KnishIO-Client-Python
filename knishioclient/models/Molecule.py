@@ -551,15 +551,9 @@ class Molecule(MoleculeStructure):
         return self
 
     def init_wallet_creation(self, new_wallet: Wallet):
-        metas = {
-            "address": new_wallet.address,
-            "token": new_wallet.token,
-            "bundle": new_wallet.bundle,
-            "position": new_wallet.position,
-            "amount": 0,
-            "batch_id": new_wallet.batchId
-        }
-
+        # Cross-SDK parity (cycle 28): mirror JS initWalletCreation — the C-atom meta is the 7
+        # PREFIXED wallet* keys via setMetaWallet (NOT the unprefixed dict + final_metas), and the
+        # C-atom batchId is the NEW wallet's (was sourceWallet's). The ContinuID I-atom follows.
         self.add_atom(
             Atom(
                 self.sourceWallet.position,
@@ -567,10 +561,10 @@ class Molecule(MoleculeStructure):
                 "C",
                 self.sourceWallet.token,
                 None,
-                self.sourceWallet.batchId,
+                new_wallet.batchId,
                 "wallet",
                 new_wallet.address,
-                self.final_metas(self.context_metas(metas), new_wallet),
+                AtomMeta({}).set_meta_wallet(new_wallet).get(),
                 None,
                 self.generate_index()
             )
@@ -696,13 +690,11 @@ class Molecule(MoleculeStructure):
         return self
 
     def init_shadow_wallet_claim(self, token_slug: str, wallet: Wallet):
+        # Cross-SDK parity (cycle 28): mirror JS initShadowWalletClaim — meta = shadowWalletClaim
+        # THEN the 7 PREFIXED wallet* keys via setMetaWallet (NO tokenSlug; the token is carried by
+        # walletTokenSlug). The C-atom batchId is the claimed wallet's (was None). The token_slug
+        # param is retained for the caller's signature but is now vestigial.
         self.molecularHash = None
-        metas = {
-            "tokenSlug": token_slug,
-            "walletAddress": wallet.address,
-            "walletPosition": wallet.position,
-            "batchId": wallet.batchId
-        }
 
         self.atoms.append(
             Atom(
@@ -711,10 +703,10 @@ class Molecule(MoleculeStructure):
                 "C",
                 self.sourceWallet.token,
                 None,
-                None,
+                wallet.batchId,
                 'wallet',
                 wallet.address,
-                self.final_metas(metas),
+                AtomMeta({}).set_shadow_wallet_claim(True).set_meta_wallet(wallet).get(),
                 None,
                 self.generate_index()
             )

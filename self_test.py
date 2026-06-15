@@ -145,6 +145,22 @@ def load_config() -> Dict:
                 "sourcePosition": "0123456789abcdeffedcba9876543210fedcba9876543210fedcba9876543210",
                 "recipientPosition": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
                 "meta": {"name": "Test Token", "fungibility": "fungible", "supply": "limited", "decimals": "0"}
+            },
+            "walletCreation": {
+                "sourceSeed": "TESTSEED",
+                "newWalletSeed": "NEWWALLETSEED",
+                "sourceToken": "USER",
+                "newToken": "TESTTOKEN",
+                "sourcePosition": "0123456789abcdeffedcba9876543210fedcba9876543210fedcba9876543210",
+                "newWalletPosition": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+            },
+            "shadowWalletClaim": {
+                "sourceSeed": "TESTSEED",
+                "claimSeed": "CLAIMSEED",
+                "sourceToken": "USER",
+                "claimToken": "TESTTOKEN",
+                "sourcePosition": "0123456789abcdeffedcba9876543210fedcba9876543210fedcba9876543210",
+                "claimPosition": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
             }
         }
     }
@@ -639,6 +655,145 @@ def test_token_creation(config: Dict) -> bool:
         return False
 
 
+def test_wallet_creation(config: Dict) -> bool:
+    """Test C2: Wallet Creation Test (cross-SDK parity with JS)"""
+    log('\nC2. Wallet Creation Test', 'blue')
+    test_config = config['tests']['walletCreation']
+
+    try:
+        source_secret = generate_secret(test_config['sourceSeed'])
+        source_bundle = generate_bundle_hash(source_secret)
+        source_wallet = Wallet(
+            secret=source_secret,
+            bundle=source_bundle,
+            token=test_config['sourceToken'],
+            position=test_config['sourcePosition']
+        )
+        log_test('Source wallet creation', True)
+
+        new_wallet = Wallet(
+            secret=generate_secret(test_config['newWalletSeed']),
+            token=test_config['newToken'],
+            position=test_config['newWalletPosition']
+        )
+        log_test('New wallet creation', True)
+
+        remainder_wallet = create_fixed_remainder_wallet(source_secret, test_config['sourceToken'])
+        log_test('Remainder wallet creation', True)
+
+        molecule = Molecule(
+            secret=source_secret,
+            bundle=source_bundle,
+            source_wallet=source_wallet,
+            remainder_wallet=remainder_wallet
+        )
+
+        molecule.init_wallet_creation(new_wallet)
+        log_test('Wallet creation initialization', True)
+
+        set_fixed_timestamps(molecule)
+        molecule.sign()
+        log_test('Molecule signing', True)
+
+        inspect_molecule(molecule, 'wallet creation molecule')
+
+        is_valid = False
+        validation_error = None
+        try:
+            is_valid = molecule.check(source_wallet)
+            if not is_valid:
+                validation_error = "Validation returned False (no exception thrown)"
+        except Exception as e:
+            is_valid = False
+            validation_error = str(e)
+
+        log_test('Molecule validation', is_valid, validation_error)
+
+        results['molecules']['walletCreation'] = json.dumps(molecule.to_json())
+        results['tests']['walletCreation'] = {
+            'passed': is_valid,
+            'molecularHash': molecule.molecularHash,
+            'atomCount': len(molecule.atoms),
+            'validationError': validation_error
+        }
+        return is_valid
+
+    except Exception as e:
+        log(f"  ❌ ERROR: {str(e)}", 'red')
+        results['tests']['walletCreation'] = {'passed': False, 'error': str(e)}
+        return False
+
+
+def test_shadow_wallet_claim(config: Dict) -> bool:
+    """Test C3: Shadow Wallet Claim Test (cross-SDK parity with JS)"""
+    log('\nC3. Shadow Wallet Claim Test', 'blue')
+    test_config = config['tests']['shadowWalletClaim']
+
+    try:
+        source_secret = generate_secret(test_config['sourceSeed'])
+        source_bundle = generate_bundle_hash(source_secret)
+        source_wallet = Wallet(
+            secret=source_secret,
+            bundle=source_bundle,
+            token=test_config['sourceToken'],
+            position=test_config['sourcePosition']
+        )
+        log_test('Source wallet creation', True)
+
+        claim_wallet = Wallet(
+            secret=generate_secret(test_config['claimSeed']),
+            token=test_config['claimToken'],
+            position=test_config['claimPosition']
+        )
+        log_test('Claim wallet creation', True)
+
+        remainder_wallet = create_fixed_remainder_wallet(source_secret, test_config['sourceToken'])
+        log_test('Remainder wallet creation', True)
+
+        molecule = Molecule(
+            secret=source_secret,
+            bundle=source_bundle,
+            source_wallet=source_wallet,
+            remainder_wallet=remainder_wallet
+        )
+
+        # token_slug is vestigial (carried by walletTokenSlug); pass it to mirror the API signature
+        molecule.init_shadow_wallet_claim(test_config['claimToken'], claim_wallet)
+        log_test('Shadow wallet claim initialization', True)
+
+        set_fixed_timestamps(molecule)
+        molecule.sign()
+        log_test('Molecule signing', True)
+
+        inspect_molecule(molecule, 'shadow wallet claim molecule')
+
+        is_valid = False
+        validation_error = None
+        try:
+            is_valid = molecule.check(source_wallet)
+            if not is_valid:
+                validation_error = "Validation returned False (no exception thrown)"
+        except Exception as e:
+            is_valid = False
+            validation_error = str(e)
+
+        log_test('Molecule validation', is_valid, validation_error)
+
+        results['molecules']['shadowWalletClaim'] = json.dumps(molecule.to_json())
+        results['tests']['shadowWalletClaim'] = {
+            'passed': is_valid,
+            'molecularHash': molecule.molecularHash,
+            'atomCount': len(molecule.atoms),
+            'validationError': validation_error
+        }
+        return is_valid
+
+    except Exception as e:
+        log(f"  ❌ ERROR: {str(e)}", 'red')
+        results['tests']['shadowWalletClaim'] = {'passed': False, 'error': str(e)}
+        return False
+
+
 def test_mlkem768(config: Dict) -> bool:
     """Test 5: ML-KEM768 Encryption Test"""
     log('\n5. ML-KEM768 Encryption Test', 'blue')
@@ -1084,6 +1239,8 @@ def main():
     test_simple_transfer(config)
     test_complex_transfer(config)
     test_token_creation(config)
+    test_wallet_creation(config)
+    test_shadow_wallet_claim(config)
     test_mlkem768(config)
     test_negative_cases()
     test_cross_sdk_validation()
