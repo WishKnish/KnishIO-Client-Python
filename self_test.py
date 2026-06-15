@@ -135,6 +135,16 @@ def load_config() -> Dict:
                 "token": "ENCRYPT",
                 "position": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
                 "plaintext": "Hello ML-KEM768 cross-platform test message!"
+            },
+            "tokenCreation": {
+                "sourceSeed": "TESTSEED",
+                "recipientSeed": "RECIPIENTSEED",
+                "amount": 1000000,
+                "sourceToken": "USER",
+                "newToken": "TESTTOKEN",
+                "sourcePosition": "0123456789abcdeffedcba9876543210fedcba9876543210fedcba9876543210",
+                "recipientPosition": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+                "meta": {"name": "Test Token", "fungibility": "fungible", "supply": "limited", "decimals": "0"}
             }
         }
     }
@@ -537,6 +547,92 @@ def test_complex_transfer(config: Dict) -> bool:
     except Exception as e:
         log(f"  ❌ ERROR: {str(e)}", 'red')
         results['tests']['complexTransfer'] = {
+            'passed': False,
+            'error': str(e)
+        }
+        return False
+
+
+def test_token_creation(config: Dict) -> bool:
+    """Test C1: Token Creation Test (cross-SDK parity with JS)"""
+    log('\nC1. Token Creation Test', 'blue')
+    test_config = config['tests']['tokenCreation']
+
+    try:
+        # Create source wallet (USER token)
+        source_secret = generate_secret(test_config['sourceSeed'])
+        source_bundle = generate_bundle_hash(source_secret)
+
+        source_wallet = Wallet(
+            secret=source_secret,
+            bundle=source_bundle,
+            token=test_config['sourceToken'],
+            position=test_config['sourcePosition']
+        )
+        log_test('Source wallet creation', True)
+
+        # Create recipient wallet for the new token
+        recipient_secret = generate_secret(test_config['recipientSeed'])
+        recipient_wallet = Wallet(
+            secret=recipient_secret,
+            token=test_config['newToken'],
+            position=test_config['recipientPosition']
+        )
+        log_test('Recipient wallet creation', True)
+
+        # USER-token remainder so add_continue_id_atom's guard keeps the canonical bbbb... wallet
+        remainder_wallet = create_fixed_remainder_wallet(source_secret, test_config['sourceToken'])
+        log_test('Remainder wallet creation', True)
+
+        molecule = Molecule(
+            secret=source_secret,
+            bundle=source_bundle,
+            source_wallet=source_wallet,
+            remainder_wallet=remainder_wallet
+        )
+
+        molecule.init_token_creation(
+            recipient=recipient_wallet,
+            amount=test_config['amount'],
+            token_meta=test_config['meta']
+        )
+        log_test('Token creation initialization', True)
+
+        # Set fixed timestamps for deterministic testing (before signing)
+        set_fixed_timestamps(molecule)
+
+        molecule.sign()
+        log_test('Molecule signing', True)
+
+        inspect_molecule(molecule, 'token creation molecule')
+
+        is_valid = False
+        validation_error = None
+        try:
+            is_valid = molecule.check(source_wallet)
+            if not is_valid:
+                validation_error = "Validation returned False (no exception thrown)"
+        except Exception as e:
+            is_valid = False
+            validation_error = str(e)
+
+        log_test('Molecule validation', is_valid, validation_error)
+
+        # Store serialized molecule using centralized method
+        results['molecules']['tokenCreation'] = json.dumps(molecule.to_json())
+
+        results['tests']['tokenCreation'] = {
+            'passed': is_valid,
+            'molecularHash': molecule.molecularHash,
+            'atomCount': len(molecule.atoms),
+            'validationError': validation_error
+        }
+
+        return is_valid
+
+    except Exception as e:
+        log(f"  ❌ ERROR: {str(e)}", 'red')
+        results['tests']['tokenCreation'] = {
             'passed': False,
             'error': str(e)
         }
@@ -987,6 +1083,7 @@ def main():
     test_metadata_creation(config)
     test_simple_transfer(config)
     test_complex_transfer(config)
+    test_token_creation(config)
     test_mlkem768(config)
     test_negative_cases()
     test_cross_sdk_validation()

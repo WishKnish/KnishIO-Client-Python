@@ -3,7 +3,7 @@
 from .models import *
 from .client import KnishIOClient
 
-__version__ = '0.8.2'
+__version__ = '0.8.3'
 
 name = "knishioclient"
 

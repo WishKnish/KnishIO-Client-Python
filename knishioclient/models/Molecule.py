@@ -668,10 +668,12 @@ class Molecule(MoleculeStructure):
 
         metas = Meta.normalize_meta(token_meta)
 
-        for key in ['walletAddress', 'walletPosition']:
-            if 0 == len([meta for meta in metas if 'key' in meta and key == meta['key']]):
-                metas.append({'key': key, 'value': getattr(recipient, key[6:].lower())})
-
+        # Cross-SDK parity (2026-06-15, cycle 22): mirror the JS reference
+        # `new AtomMeta(meta).setMetaWallet(recipientWallet)` — the C-atom carries the
+        # user token meta followed by the 7 PREFIXED wallet* keys (walletTokenSlug,
+        # walletBundleHash, walletAddress, walletPosition, walletBatchId, walletPubkey,
+        # walletCharacters) in insertion order. Do NOT route through final_metas (which
+        # injects unprefixed pubkey/characters) or append unprefixed walletAddress/Position.
         self.atoms.append(
             Atom(
                 self.sourceWallet.position,
@@ -682,7 +684,7 @@ class Molecule(MoleculeStructure):
                 recipient.batchId,
                 'token',
                 recipient.token,
-                self.final_metas(Meta.aggregate_meta(metas)),
+                AtomMeta(Meta.aggregate_meta(metas)).set_meta_wallet(recipient).get(),
                 None,
                 self.generate_index()
             )
