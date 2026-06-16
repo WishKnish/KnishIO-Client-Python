@@ -689,11 +689,10 @@ class Molecule(MoleculeStructure):
 
         return self
 
-    def init_shadow_wallet_claim(self, token_slug: str, wallet: Wallet):
+    def init_shadow_wallet_claim(self, wallet: Wallet):
         # Cross-SDK parity (cycle 28): mirror JS initShadowWalletClaim — meta = shadowWalletClaim
         # THEN the 7 PREFIXED wallet* keys via setMetaWallet (NO tokenSlug; the token is carried by
-        # walletTokenSlug). The C-atom batchId is the claimed wallet's (was None). The token_slug
-        # param is retained for the caller's signature but is now vestigial.
+        # walletTokenSlug). The C-atom batchId is the claimed wallet's.
         self.molecularHash = None
 
         self.atoms.append(

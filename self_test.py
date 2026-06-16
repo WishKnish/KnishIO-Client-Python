@@ -757,8 +757,7 @@ def test_shadow_wallet_claim(config: Dict) -> bool:
             remainder_wallet=remainder_wallet
         )
 
-        # token_slug is vestigial (carried by walletTokenSlug); pass it to mirror the API signature
-        molecule.init_shadow_wallet_claim(test_config['claimToken'], claim_wallet)
+        molecule.init_shadow_wallet_claim(claim_wallet)
         log_test('Shadow wallet claim initialization', True)
 
         set_fixed_timestamps(molecule)
