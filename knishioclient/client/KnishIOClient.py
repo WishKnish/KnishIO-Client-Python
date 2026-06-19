@@ -108,7 +108,7 @@ class KnishIOClient(object):
         bundle = bundle or self.bundle()
 
         if source_wallet is None \
-                and self.get_remainder_wallet().token not in 'USER' \
+                and self.get_remainder_wallet().token == 'USER' \
                 and self.__last_molecule_query is not None \
                 and self.__last_molecule_query.response() is not None \
                 and self.__last_molecule_query.response().success():

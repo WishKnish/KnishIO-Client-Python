@@ -82,7 +82,7 @@ def isotope_c(molecule: 'Molecule') -> bool:
     missing(molecule)
 
     for atom in isotope_filter('C', molecule.atoms):
-        if atom.token not in 'USER':
+        if atom.token != 'USER':  # equality (was `not in 'USER'`, a substring test); mirror JS/PHP isotopeC
             raise WrongTokenTypeException('Invalid token name for %s isotope' % atom.isotope)
         if atom.index != 0:
             raise AtomIndexException('Invalid isotope "%s" index' % atom.isotope)
