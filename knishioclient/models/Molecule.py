@@ -441,39 +441,73 @@ class Molecule(MoleculeStructure):
         return self
 
     def burning_tokens(self, value, wallet_bundle=None):
+        # wallet_bundle is vestigial (JS parity): the burn always targets the all-zeros bundle.
         if value < 0.0:
             raise NegativeMeaningException('It is impossible to use a negative value for the number of tokens')
 
         if decimal.cmp(0.0, float(self.sourceWallet.balance) - value) > 0:
             raise BalanceInsufficientException()
 
-        self.add_atom(
+        self.molecularHash = None
+
+        # Burn-address wallet: the all-zeros bundle = token destruction. No secret, so it has
+        # no position/address (the Coder wire coerces null -> "" and hash_atoms skips falsy);
+        # the validator credits the burn amount to this unspendable bundle, satisfying V-isotope
+        # conservation (sum == 0) while permanently destroying the tokens. Mirrors JS burnToken
+        # + the sibling init_value (3 V-atoms, no pubkey/characters meta).
+        burn_wallet = Wallet(
+            bundle='0000000000000000000000000000000000000000000000000000000000000000',
+            token=self.sourceWallet.token
+        )
+
+        # V-atom 1: debit the ENTIRE source balance (UTXO model). Must be -balance (not -value):
+        # the burn target gets +value and the remainder +(balance-value), so the three V-atoms
+        # sum to zero (validator requires exactly 3 V-atoms + sum == 0).
+        self.atoms.append(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
-                "V",
+                'V',
                 self.sourceWallet.token,
-                - float(value),
+                -float(self.sourceWallet.balance),
                 self.sourceWallet.batchId,
                 None,
                 None,
-                self.final_metas({}),
+                {},  # JS parity: V-atoms carry no pubkey/characters meta
                 None,
                 self.generate_index()
             )
         )
 
-        self.add_atom(
+        # V-atom 2: credit the burn amount to the all-zeros burn address (destruction)
+        self.atoms.append(
+            Atom(
+                burn_wallet.position,
+                burn_wallet.address,
+                'V',
+                self.sourceWallet.token,
+                float(value),
+                burn_wallet.batchId,
+                'walletBundle',
+                burn_wallet.bundle,
+                {},
+                None,
+                self.generate_index()
+            )
+        )
+
+        # V-atom 3: remainder back to the source identity
+        self.atoms.append(
             Atom(
                 self.remainderWallet.position,
                 self.remainderWallet.address,
-                "V",
+                'V',
                 self.sourceWallet.token,
-                float(self.sourceWallet.balance) - value,  # Correct remainder calculation
+                float(self.sourceWallet.balance) - value,
                 self.remainderWallet.batchId,
-                'walletBundle' if wallet_bundle else None,
-                wallet_bundle,
-                self.final_metas({}, self.remainderWallet),
+                'walletBundle',
+                self.sourceWallet.bundle,
+                {},
                 None,
                 self.generate_index()
             )

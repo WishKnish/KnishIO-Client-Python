@@ -519,36 +519,29 @@ class KnishIOClient(object):
         """
         if amount <= 0:
             raise NegativeMeaningException('Amount to burn must be positive')
-        
-        # Get source wallet if not provided
-        if source_wallet is None:
-            source_wallet = self.query_balance(token_slug).data()
-            if not source_wallet:
-                raise TransferBalanceException('Source wallet not found')
-        
-        # Check balance
-        if source_wallet.balance < amount:
+
+        # Resolve the source = the client's on-ledger wallet for this token. Use .payload()
+        # (ResponseBalance builds a real Wallet); .data() returns the raw dict, so .balance/
+        # .token would fail. Mirrors transfer_token.
+        from_wallet = source_wallet or self.query_balance(token_slug).payload()
+        if from_wallet is None or decimal.cmp(strings.number(from_wallet.balance), amount) < 0:
             raise BalanceInsufficientException('Insufficient balance to burn tokens')
-        
-        # Create remainder wallet
-        remainder_wallet = Wallet(
-            secret=self.secret(),
-            token=source_wallet.token,
-            batchId=source_wallet.batchId,
-            characters=source_wallet.characters
-        )
-        
-        # Create molecule
+
+        # Canonical remainder (mirrors transfer_token / the JS/PHP reference; carries source
+        # token/characters). The prior manual Wallet(secret=..., batchId=...) was broken:
+        # `batchId` is not a ctor kwarg (it is `batch_id`) and `secret=` re-derives a position.
+        remainder_wallet = from_wallet.create_remainder(self.secret())
+
         molecule = self.create_molecule(
-            source_wallet=source_wallet,
+            source_wallet=from_wallet,
             remainder_wallet=remainder_wallet
         )
-        
+
         # Burn the tokens
         molecule.burning_tokens(amount)
         molecule.sign()
         molecule.check()
-        
+
         # Create and execute mutation
         query = self.create_molecule_mutation(MutationProposeMolecule, molecule)
         return query.execute()
