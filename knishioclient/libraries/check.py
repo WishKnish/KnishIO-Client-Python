@@ -190,8 +190,12 @@ def isotope_v(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
                 # If comparison fails, skip this check (malformed molecule)
                 pass
 
-            # Cannot be sending and receiving from the same address
-            if v_atom.walletAddress in first_atom.walletAddress:
+            # Cannot be sending and receiving from the same address.
+            # A shadow/batched recipient atom has no walletAddress (keyed by
+            # bundle + batchId), so it can never be a self-transfer — skip the
+            # check rather than crash on `None in <str>`.
+            if v_atom.walletAddress and first_atom.walletAddress \
+                    and v_atom.walletAddress in first_atom.walletAddress:
                 raise TransferToSelfException()
 
         # Adding this Atom's value to the total sum

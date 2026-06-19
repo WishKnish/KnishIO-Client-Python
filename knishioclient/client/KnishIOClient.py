@@ -346,8 +346,12 @@ class KnishIOClient(object):
         return response.payload()
 
     def transfer_token(self, wallet_object_or_bundle_hash: Wallet | str | bytes, token_slug: str,
-                       amount: int | float):
-        from_wallet = self.query_bundle(token_slug).payload()
+                       amount: int | float, batch_id: str = None):
+        # Source = the client's own on-ledger wallet for this token (queryBalance defaults
+        # bundleHash to the authenticated bundle). The prior query_bundle(token_slug).payload()
+        # was doubly wrong: query_bundle already returns the payload, and it treated token_slug
+        # as the bundle_hash arg.
+        from_wallet = self.query_balance(token_slug).payload()
 
         if from_wallet is None or decimal.cmp(strings.number(from_wallet.balance), amount) < 0:
             raise TransferBalanceException('The transfer amount cannot be greater than the sender\'s balance')
@@ -355,14 +359,20 @@ class KnishIOClient(object):
         to_wallet = wallet_object_or_bundle_hash if isinstance(wallet_object_or_bundle_hash, Wallet) else \
             self.query_balance(token_slug, wallet_object_or_bundle_hash).payload()
 
+        # Fresh recipient → a shadow wallet keyed by bundle + token (claimable later)
         if to_wallet is None:
-            to_wallet = Wallet.create(wallet_object_or_bundle_hash, token_slug)
+            to_wallet = Wallet.create(bundle=wallet_object_or_bundle_hash, token=token_slug)
 
-        to_wallet.init_batch_id(from_wallet, amount)
+        # Recipient batch id: explicit (e.g. a claimable shadow for a known batch) or derived from source
+        if batch_id is not None:
+            to_wallet.batchId = batch_id
+        else:
+            to_wallet.init_batch_id(from_wallet)
 
-        self.__remainder_wallet = Wallet.create(self.secret(), token_slug, to_wallet.batchId, from_wallet.characters)
+        # Canonical remainder (mirrors the JS/PHP reference; carries source token/characters)
+        remainder_wallet = from_wallet.create_remainder(self.secret())
 
-        molecule = self.create_molecule(None, from_wallet, self.get_remainder_wallet())
+        molecule = self.create_molecule(source_wallet=from_wallet, remainder_wallet=remainder_wallet)
         query = self.create_molecule_mutation(MutationTransferTokens, molecule)
         query.fill_molecule(to_wallet, amount)
 

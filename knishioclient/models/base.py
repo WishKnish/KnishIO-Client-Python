@@ -18,8 +18,12 @@ class Coder(JSONEncoder):
         
         if isinstance(value, Atom):
             return {
-                'position': value.position,
-                'walletAddress': value.walletAddress,
+                # position/walletAddress are required Strings in the validator's AtomInput,
+                # but a shadow/batched recipient atom legitimately has neither (None). Coerce
+                # null -> "" on the wire so AtomInput accepts it; hash stays consistent
+                # because SHAKE256 absorbing "" is a no-op (== hash_atoms' falsy-skip).
+                'position': value.position or '',
+                'walletAddress': value.walletAddress or '',
                 'isotope': value.isotope,
                 'token': value.token,
                 'value': value.value,
