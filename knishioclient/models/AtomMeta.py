@@ -48,7 +48,11 @@ class AtomMeta(Base):
         })
 
     def set_shadow_wallet_claim(self, shadow_wallet_claim) -> "AtomMeta":
-        return self.merge({"shadowWalletClaim": shadow_wallet_claim * 1})
+        # Meta values are canonically strings. `* 1` coerces bool->int (True->1); stringify it
+        # so the wire/dump carry "1" (like JS/all other SDKs) — emitting the int 1 made strict
+        # consumers (Rust validator hash-recompute) reject Python's molecule. Hash is unchanged
+        # (hash_atoms already absorbs str(value), so str(1)=="1").
+        return self.merge({"shadowWalletClaim": str(shadow_wallet_claim * 1)})
 
     def set_signing_wallet(self, signing_wallet: "Wallet") -> "AtomMeta":
         return self.merge({
