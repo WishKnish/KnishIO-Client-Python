@@ -74,11 +74,16 @@ class Wallet(object):
     def split_units(self, units: List, remainder_wallet: "Wallet" = None, recipient_wallet: "Wallet" = None):
         if not units:
             return
+        # Partition the ORIGINAL units BEFORE reassigning self.tokenUnits (mirror the Rust SDK
+        # wallet split). The prior code set self.tokenUnits = recipient_token_units first, then
+        # derived the remainder from the already-truncated self.tokenUnits -> the remainder wallet
+        # always got [] (the kept units were silently lost on every stackable transfer/burn).
         recipient_token_units = [tokenUnit for tokenUnit in self.tokenUnits if tokenUnit.id in units]
+        remainder_token_units = [tokenUnit for tokenUnit in self.tokenUnits if tokenUnit.id not in units]
         self.tokenUnits = recipient_token_units
         if recipient_wallet:
             recipient_wallet.tokenUnits = recipient_token_units
-        remainder_wallet.tokenUnits = [tokenUnit for tokenUnit in self.tokenUnits if tokenUnit.id not in units]
+        remainder_wallet.tokenUnits = remainder_token_units
 
     @classmethod
     def get_token_units(cls, units_datas: List):

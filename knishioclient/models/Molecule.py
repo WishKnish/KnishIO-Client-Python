@@ -473,7 +473,7 @@ class Molecule(MoleculeStructure):
                 self.sourceWallet.batchId,
                 None,
                 None,
-                {},  # JS parity: V-atoms carry no pubkey/characters meta
+                AtomMeta({}).set_atom_wallet(self.sourceWallet).get(),  # stackable: tokenUnits (BURNED); fungible -> {}
                 None,
                 self.generate_index()
             )
@@ -507,7 +507,7 @@ class Molecule(MoleculeStructure):
                 self.remainderWallet.batchId,
                 'walletBundle',
                 self.sourceWallet.bundle,
-                {},
+                AtomMeta({}).set_atom_wallet(self.remainderWallet).get(),  # stackable: tokenUnits (KEPT); fungible -> {}
                 None,
                 self.generate_index()
             )
@@ -542,7 +542,7 @@ class Molecule(MoleculeStructure):
                 self.sourceWallet.batchId,
                 None,
                 None,
-                {},  # JS parity: V-atoms carry no pubkey/characters meta
+                AtomMeta({}).set_atom_wallet(self.sourceWallet).get(),  # stackable: tokenUnits (SENT); fungible -> {} (frozen-hash-safe)
                 None,
                 self.generate_index()
             )
@@ -558,7 +558,7 @@ class Molecule(MoleculeStructure):
                 recipient.batchId,
                 'walletBundle',
                 recipient.bundle,
-                {},  # JS parity: V-atoms carry no pubkey/characters meta
+                AtomMeta({}).set_atom_wallet(recipient).get(),  # stackable: tokenUnits (SENT); fungible -> {}
                 None,
                 self.generate_index()
             )
@@ -574,7 +574,7 @@ class Molecule(MoleculeStructure):
                 self.remainderWallet.batchId,
                 'walletBundle',
                 self.sourceWallet.bundle,
-                {},  # JS parity: V-atoms carry no pubkey/characters meta
+                AtomMeta({}).set_atom_wallet(self.remainderWallet).get(),  # stackable: tokenUnits (KEPT); fungible -> {}
                 None,
                 self.generate_index()
             )

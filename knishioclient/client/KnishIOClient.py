@@ -346,7 +346,7 @@ class KnishIOClient(object):
         return response.payload()
 
     def transfer_token(self, wallet_object_or_bundle_hash: Wallet | str | bytes, token_slug: str,
-                       amount: int | float, batch_id: str = None):
+                       amount: int | float, batch_id: str = None, units: list = None):
         # Source = the client's own on-ledger wallet for this token (queryBalance defaults
         # bundleHash to the authenticated bundle). The prior query_bundle(token_slug).payload()
         # was doubly wrong: query_bundle already returns the payload, and it treated token_slug
@@ -371,6 +371,12 @@ class KnishIOClient(object):
 
         # Canonical remainder (mirrors the JS/PHP reference; carries source token/characters)
         remainder_wallet = from_wallet.create_remainder(self.secret())
+
+        # Stackable (NFT) transfer: partition the source's tokenUnits across source (SENT),
+        # recipient (SENT) and remainder (KEPT) BEFORE the molecule is built, so init_value reads
+        # the units off each wallet. No-op for fungible transfers (units is None/empty). Mirrors JS.
+        if units:
+            from_wallet.split_units(units, remainder_wallet, to_wallet)
 
         molecule = self.create_molecule(source_wallet=from_wallet, remainder_wallet=remainder_wallet)
         query = self.create_molecule_mutation(MutationTransferTokens, molecule)
@@ -508,13 +514,14 @@ class KnishIOClient(object):
         
         return query.execute()
     
-    def burn_tokens(self, token_slug: str, amount: float, source_wallet: Wallet = None):
+    def burn_tokens(self, token_slug: str, amount: float, source_wallet: Wallet = None, units: list = None):
         """
         Burns (destroys) tokens from the specified wallet
-        
+
         :param token_slug: The token to burn
         :param amount: Amount of tokens to burn
         :param source_wallet: Source wallet (optional, uses balance query if not provided)
+        :param units: Token unit ids to burn (stackable/NFT tokens; optional)
         :return: Response from the mutation
         """
         if amount <= 0:
@@ -531,6 +538,12 @@ class KnishIOClient(object):
         # token/characters). The prior manual Wallet(secret=..., batchId=...) was broken:
         # `batchId` is not a ctor kwarg (it is `batch_id`) and `secret=` re-derives a position.
         remainder_wallet = from_wallet.create_remainder(self.secret())
+
+        # Stackable (NFT) burn: partition the source's tokenUnits → source keeps the BURNED units,
+        # remainder keeps the rest. No recipient (the units are destroyed). No-op for fungible
+        # burns (units is None/empty). Must run BEFORE the molecule is built. Mirrors JS.
+        if units:
+            from_wallet.split_units(units, remainder_wallet)
 
         molecule = self.create_molecule(
             source_wallet=from_wallet,
