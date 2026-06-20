@@ -17,6 +17,11 @@ class QueryBalance(Query):
             'characters': None,
             'pubkey': None,
             'createdAt': None,
+            'tokenUnits': {
+                'id': None,
+                'name': None,
+                'metas': None,
+            },
         }
         self.query = query or self.default_query
 

@@ -2,6 +2,7 @@
 from typing import Optional, Dict, Any, Union, Awaitable, Callable
 import asyncio
 import time
+import json
 from ..exception import (
     UnauthenticatedException,
     CodeException,
@@ -274,13 +275,21 @@ class KnishIOClient(object):
         return self.request_profile_auth_token(secret, encrypt)
 
     def create_token(self, token_slug: str, initial_amount,
-                     token_metadata=None):
+                     token_metadata=None, units=None):
         data_metas = token_metadata or {}
         recipient_wallet = Wallet(self.secret(), token_slug)
 
+        # fungibility check was a substring test (`in 'stackable'`) — use proper membership.
         fungibility = array_get(data_metas, 'fungibility')
-        if fungibility and fungibility in 'stackable':
+        if fungibility == 'stackable':
             recipient_wallet.batchId = crypto.generate_batch_id()
+        # Stackable / non-fungible: the token units ARE the supply (mirror JS createToken):
+        # amount = unit count, splittable + decimals=0, tokenUnits meta = JSON of the units.
+        if units and fungibility in ('stackable', 'nonfungible', 'non-fungible'):
+            data_metas['splittable'] = 1
+            data_metas['decimals'] = 0
+            data_metas['tokenUnits'] = json.dumps(units)
+            initial_amount = len(units)
 
         query = self.create_molecule_mutation(MutationCreateToken)
         query.fill_molecule(recipient_wallet, initial_amount, data_metas)

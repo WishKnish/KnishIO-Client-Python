@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from ..models import Wallet
+from ..models import Wallet, TokenUnit
 from .Response import Response
 
 
@@ -28,4 +28,9 @@ class ResponseBalance(Response):
         )
         wallet.balance = float(wallet_data.get('amount') or 0)
         wallet.pubkey = wallet_data.get('pubkey')
+        # Stackable (NFT) token units (forward-compat; the validator's tokenUnits resolver is a
+        # stub returning [] until gap SDK-001 lands, so this is populated only when present).
+        wallet.tokenUnits = [
+            TokenUnit.create_from_graph_ql(unit) for unit in (wallet_data.get('tokenUnits') or [])
+        ]
         return wallet
