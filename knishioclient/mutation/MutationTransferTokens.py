@@ -7,3 +7,8 @@ class MutationTransferTokens(MutationProposeMolecule):
         self.molecule().init_value(to_wallet, amount)
         self.molecule().sign()
         self.molecule().check(self.molecule().source_wallet())
+
+    def fill_molecule_multi(self, recipient_wallets, amounts):
+        self.molecule().init_values(recipient_wallets, amounts)
+        self.molecule().sign()
+        self.molecule().check(self.molecule().source_wallet())

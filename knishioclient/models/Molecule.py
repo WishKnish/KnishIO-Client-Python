@@ -584,6 +584,81 @@ class Molecule(MoleculeStructure):
 
         return self
 
+    def init_values(self, recipient_wallets: list, amounts: list) -> 'Molecule':
+        """
+        Initialize a MULTI-recipient V-type molecule: one source debits its FULL balance to fund
+        N recipients (each its own amount + stackable units) plus a remainder back to the sender.
+        Multi-recipient sibling of init_value (WP line 544: fund multiple recipients with one
+        transaction). recipient_wallets is parallel to amounts.
+
+        :param recipient_wallets: list[Wallet]
+        :param amounts: list[int | float]
+        :return: self
+        """
+
+        total = sum(float(amount) for amount in amounts)
+
+        if decimal.cmp(total, float(self.sourceWallet.balance)) > 0:
+            raise BalanceInsufficientException()
+
+        self.molecularHash = None
+
+        # Source atom: debit the ENTIRE balance (UTXO drain); carries the SENT union of token units
+        self.atoms.append(
+            Atom(
+                self.sourceWallet.position,
+                self.sourceWallet.address,
+                'V',
+                self.sourceWallet.token,
+                -float(self.sourceWallet.balance),
+                self.sourceWallet.batchId,
+                None,
+                None,
+                AtomMeta({}).set_atom_wallet(self.sourceWallet).get(),  # stackable: tokenUnits (SENT union)
+                None,
+                self.generate_index()
+            )
+        )
+
+        # One atom per recipient: +amount_i, walletBundle -> recipient bundle, its own SENT units
+        for recipient, amount in zip(recipient_wallets, amounts):
+            self.atoms.append(
+                Atom(
+                    recipient.position,
+                    recipient.address,
+                    'V',
+                    self.sourceWallet.token,
+                    amount,
+                    recipient.batchId,
+                    'walletBundle',
+                    recipient.bundle,
+                    AtomMeta({}).set_atom_wallet(recipient).get(),  # stackable: tokenUnits (this recipient's SENT)
+                    None,
+                    self.generate_index()
+                )
+            )
+
+        # Remainder atom: +(balance - total), walletBundle -> sender bundle, KEPT units
+        self.atoms.append(
+            Atom(
+                self.remainderWallet.position,
+                self.remainderWallet.address,
+                'V',
+                self.sourceWallet.token,
+                float(self.sourceWallet.balance) - total,
+                self.remainderWallet.batchId,
+                'walletBundle',
+                self.sourceWallet.bundle,
+                AtomMeta({}).set_atom_wallet(self.remainderWallet).get(),  # stackable: tokenUnits (KEPT)
+                None,
+                self.generate_index()
+            )
+        )
+
+        self.atoms = Atom.sort_atoms(self.atoms)
+
+        return self
+
     def init_wallet_creation(self, new_wallet: Wallet):
         # Cross-SDK parity (cycle 28): mirror JS initWalletCreation — the C-atom meta is the 7
         # PREFIXED wallet* keys via setMetaWallet (NOT the unprefixed dict + final_metas), and the

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from typing import Optional, Dict, Any, Union, Awaitable, Callable
+from dataclasses import dataclass
 import asyncio
 import time
 import json
@@ -8,7 +9,8 @@ from ..exception import (
     CodeException,
     TransferBalanceException,
     NegativeMeaningException,
-    BalanceInsufficientException
+    BalanceInsufficientException,
+    StackableUnitAmountException
 )
 from ..query import (
     Query,
@@ -43,6 +45,20 @@ from ..libraries import decimal, strings, crypto
 from ..config.standard_config import ClientConfig, MetaConfig, TokenConfig, TransferConfig
 from ..response.standard_response import StandardResponse, ResponseFactory, ValidationResult
 from .HttpClient import HttpClient
+
+
+@dataclass
+class TransferRecipient:
+    """One destination of a multi-recipient transfer (see KnishIOClient.transfer_tokens).
+
+    Provide EITHER ``units`` (stackable/NFT: the amount = len(units)) OR ``amount`` (fungible),
+    not both. ``batch_id`` makes the recipient a claimable shadow under that batch (else a fresh
+    one is derived from the source when the token is batched).
+    """
+    bundle_hash: str
+    units: list = None
+    amount: Union[int, float] = None
+    batch_id: str = None
 
 
 class KnishIOClient(object):
@@ -399,6 +415,60 @@ class KnishIOClient(object):
         molecule = self.create_molecule(source_wallet=from_wallet, remainder_wallet=remainder_wallet)
         query = self.create_molecule_mutation(MutationTransferTokens, molecule)
         query.fill_molecule(to_wallet, amount)
+
+        return query.execute()
+
+    def transfer_tokens(self, token_slug: str, recipients: list):
+        """Fund N recipients from a single source in ONE molecule (multi-recipient sibling of
+        transfer_token). Each recipient (a TransferRecipient) gets its own subset of stackable
+        units (or a fungible amount); a remainder returns the rest to the sender. Conserves:
+        -balance + Σamounts + (balance - Σ) == 0.
+
+        :param token_slug: str
+        :param recipients: list[TransferRecipient]
+        :return: the executed MutationTransferTokens response
+        """
+        # Per-recipient amount: stackable -> unit count; fungible -> explicit amount (never both)
+        amounts = []
+        for recipient in recipients:
+            if recipient.units and recipient.amount is not None:
+                raise StackableUnitAmountException(
+                    'TransferRecipient accepts either units (stackable) or amount (fungible), not both.'
+                )
+            amounts.append(len(recipient.units) if recipient.units else recipient.amount)
+
+        total = sum(amounts)
+
+        # Source = the client's own on-ledger wallet for this token; query_balance().payload()
+        # PRESERVES tokenUnits (so the split below operates on the real units).
+        from_wallet = self.query_balance(token_slug).payload()
+
+        if from_wallet is None or decimal.cmp(strings.number(from_wallet.balance), total) < 0:
+            raise TransferBalanceException('The transfer amount cannot be greater than the sender\'s balance')
+
+        # Build a shadow recipient wallet per destination + assign a distinct batch id
+        recipient_wallets = []
+        for recipient in recipients:
+            recipient_wallet = Wallet.create(bundle=recipient.bundle_hash, token=token_slug)
+            if recipient.batch_id is not None:
+                recipient_wallet.batchId = recipient.batch_id
+            else:
+                recipient_wallet.init_batch_id(from_wallet)
+            recipient_wallets.append(recipient_wallet)
+
+        # Canonical remainder (carries the source's token/characters; reuses the source batch id)
+        remainder_wallet = from_wallet.create_remainder(self.secret())
+
+        # Stackable (NFT): partition the source's tokenUnits across source (SENT union),
+        # each recipient (its subset), and remainder (KEPT) BEFORE the molecule is built.
+        # No-op for fungible transfers (no recipient carries units). Mirrors JS/Rust.
+        if any(recipient.units for recipient in recipients):
+            unit_lists = [recipient.units or [] for recipient in recipients]
+            from_wallet.split_units_multi(unit_lists, recipient_wallets, remainder_wallet)
+
+        molecule = self.create_molecule(source_wallet=from_wallet, remainder_wallet=remainder_wallet)
+        query = self.create_molecule_mutation(MutationTransferTokens, molecule)
+        query.fill_molecule_multi(recipient_wallets, amounts)
 
         return query.execute()
 

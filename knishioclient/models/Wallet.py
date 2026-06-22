@@ -85,6 +85,25 @@ class Wallet(object):
             recipient_wallet.tokenUnits = recipient_token_units
         remainder_wallet.tokenUnits = remainder_token_units
 
+    def split_units_multi(self, recipient_unit_lists: List, recipient_wallets: List, remainder_wallet: "Wallet"):
+        """Split token units across MULTIPLE recipients (WP line 544).
+
+        N-way sibling of split_units: the source retains the SENT union (all units leaving), each
+        recipient gets its own subset, and the remainder gets the KEPT units (those not assigned to
+        any recipient). recipient_unit_lists is parallel to recipient_wallets.
+        """
+        sent_ids = {uid for unit_list in recipient_unit_lists for uid in unit_list}
+        # Nothing to split (fungible transfer) — leave token units untouched
+        if not sent_ids:
+            return
+        # Each recipient gets its own subset of the source's token units
+        for recipient_wallet, ids in zip(recipient_wallets, recipient_unit_lists):
+            recipient_wallet.tokenUnits = [tokenUnit for tokenUnit in self.tokenUnits if tokenUnit.id in ids]
+        # The remainder keeps everything not sent to any recipient (KEPT)
+        remainder_wallet.tokenUnits = [tokenUnit for tokenUnit in self.tokenUnits if tokenUnit.id not in sent_ids]
+        # The source carries the SENT union (the ownership authority the validator reads)
+        self.tokenUnits = [tokenUnit for tokenUnit in self.tokenUnits if tokenUnit.id in sent_ids]
+
     @classmethod
     def get_token_units(cls, units_datas: List):
         return [TokenUnit.create_from_db(unit_data) for unit_data in units_datas]
