@@ -14,13 +14,16 @@ class TokenUnit:
     def create_from_graph_ql(cls, data: "TokenUnit" | Dict) -> "TokenUnit":
         if isinstance(data, cls):
             return cls(data.id, data.name, data.metas)
-        metas = data["metas"] or {}
+        metas = data.get("metas") or {}
         if isinstance(metas, str):
             try:
                 metas = loads(metas)
             except JSONDecodeError:
                 metas = {}
-        return cls(data["id"], data["name"], metas)
+        # Defensive: the validator stores stackable units id-only at genesis (name is an
+        # empty string via COALESCE; metas may be null) — use .get() so a missing key
+        # doesn't KeyError.
+        return cls(data.get("id"), data.get("name") or "", metas)
 
     @classmethod
     def create_from_db(cls, data: List) -> "TokenUnit":

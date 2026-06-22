@@ -277,17 +277,26 @@ class KnishIOClient(object):
     def create_token(self, token_slug: str, initial_amount,
                      token_metadata=None, units=None):
         data_metas = token_metadata or {}
-        recipient_wallet = Wallet(self.secret(), token_slug)
+        # Wallet(secret, bundle, token, …) — token_slug MUST be the `token` kwarg, not the 2nd
+        # positional (which is `bundle`). The positional form left token='USER' (the default) +
+        # bundle=token_slug, so create_token always tried to create token 'USER' ("already exists").
+        recipient_wallet = Wallet(self.secret(), token=token_slug)
 
-        # fungibility check was a substring test (`in 'stackable'`) — use proper membership.
-        fungibility = array_get(data_metas, 'fungibility')
+        # Read the fungibility meta with a plain dict.get: array_get() deliberately returns its
+        # default for STRING leaf values (it navigates into nested objects), so it returned None
+        # here -> the stackable block below never ran (no splittable/decimals/tokenUnits, amount
+        # stayed as passed) and stackable create produced an empty token.
+        fungibility = data_metas.get('fungibility')
         if fungibility == 'stackable':
             recipient_wallet.batchId = crypto.generate_batch_id()
         # Stackable / non-fungible: the token units ARE the supply (mirror JS createToken):
         # amount = unit count, splittable + decimals=0, tokenUnits meta = JSON of the units.
         if units and fungibility in ('stackable', 'nonfungible', 'non-fungible'):
-            data_metas['splittable'] = 1
-            data_metas['decimals'] = 0
+            # Meta values must be STRINGS on the wire (the validator's MetaItemInput.value is a
+            # GraphQL String; Python's Coder doesn't stringify scalars). Ints were rejected
+            # ('expected type "String"'). Mirror C++/JS which send "1"/"0".
+            data_metas['splittable'] = '1'
+            data_metas['decimals'] = '0'
             data_metas['tokenUnits'] = json.dumps(units)
             initial_amount = len(units)
 
