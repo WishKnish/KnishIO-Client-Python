@@ -1170,6 +1170,11 @@ class Molecule(MoleculeStructure):
             )
         )
 
+        # ContinuID I-atom — registers the bundle's relay head on-ledger so subsequent molecules
+        # advance the chain instead of falling to fresh genesis (mirror JS initAuthorization +
+        # every other init_*; the auth molecule's remainder is set to USER in request_profile_auth_token).
+        self.add_continue_id_atom()
+
         self.atoms = Atom.sort_atoms(self.atoms)
 
         return self

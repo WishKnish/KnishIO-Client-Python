@@ -752,9 +752,15 @@ class KnishIOClient(object):
         
         # Create wallet for authentication
         wallet = Wallet(secret=secret, token='AUTH')
-        
-        # Create molecule with the wallet
-        molecule = self.create_molecule(self.secret(), source_wallet=wallet)
+
+        # Create molecule with the AUTH source + an explicit USER remainder (mirror JS createMolecule),
+        # so the ContinuID I-atom (init_authorization) is USER-token. Without this, create_molecule
+        # auto-derives the remainder from source_wallet.token (AUTH) → a wrong-token I-atom.
+        molecule = self.create_molecule(
+            self.secret(),
+            source_wallet=wallet,
+            remainder_wallet=Wallet.create(self.secret(), self.bundle(), 'USER')
+        )
         
         # Create auth mutation
         query = self.create_molecule_mutation(MutationRequestAuthorization, molecule)
