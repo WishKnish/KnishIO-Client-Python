@@ -24,7 +24,6 @@ from ..query import (
     QueryBatch,
     QueryBatchHistory,
     QueryPolicy,
-    QueryUserActivity
 )
 from ..mutation import (
     Mutation,
@@ -507,10 +506,6 @@ class KnishIOClient(object):
             params['metaId'] = meta_id
         return query.execute(params)
     
-    def query_user_activity(self, **kwargs):
-        """Query user activity information"""
-        query = self.create_query(QueryUserActivity)
-        return query.execute(kwargs)
     
     def create_rule(self, meta_type: str, meta_id: str, rule: list, policy: dict = None):
         """

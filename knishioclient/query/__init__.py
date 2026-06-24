@@ -18,7 +18,6 @@ from .QueryAtom import QueryAtom
 from .QueryBatch import QueryBatch
 from .QueryBatchHistory import QueryBatchHistory
 from .QueryPolicy import QueryPolicy
-from .QueryUserActivity import QueryUserActivity
 
 # Also maintain backward compatibility with old imports
 from ..models import Coder
@@ -37,6 +36,5 @@ __all__ = [
     'QueryBatch',
     'QueryBatchHistory',
     'QueryPolicy',
-    'QueryUserActivity',
     'Coder',  # For backward compatibility
 ]

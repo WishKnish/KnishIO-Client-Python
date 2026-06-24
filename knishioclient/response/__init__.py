@@ -24,7 +24,6 @@ from .ResponseMetaTypeViaAtom import ResponseMetaTypeViaAtom
 from .ResponsePolicy import ResponsePolicy
 from .ResponseProposeMolecule import ResponseProposeMolecule
 from .ResponseQueryActiveSession import ResponseQueryActiveSession
-from .ResponseQueryUserActivity import ResponseQueryUserActivity
 from .ResponseRequestAuthorization import ResponseRequestAuthorization
 from .ResponseRequestAuthorizationGuest import ResponseRequestAuthorizationGuest
 from .ResponseRequestTokens import ResponseRequestTokens
@@ -52,7 +51,6 @@ __all__ = [
     'ResponsePolicy',
     'ResponseProposeMolecule',
     'ResponseQueryActiveSession',
-    'ResponseQueryUserActivity',
     'ResponseRequestAuthorization',
     'ResponseRequestAuthorizationGuest',
     'ResponseRequestTokens',
