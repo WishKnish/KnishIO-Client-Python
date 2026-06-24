@@ -7,10 +7,10 @@ __version__ = '0.8.4'
 
 name = "knishioclient"
 
-__all__ = {
+__all__ = (
     'Meta',
     'Atom',
     'Wallet',
     'Molecule',
     'KnishIOClient',
-}
+)

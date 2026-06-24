@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import json
-from typing import List, Dict, Union, Any, Optional
+from typing import List, Dict, Union, Any
 from hashlib import shake_256 as shake
 from json import JSONDecoder, JSONDecodeError
 from ..libraries import strings

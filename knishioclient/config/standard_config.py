@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Union
 from urllib.parse import urlparse
 import json
-import re
 
 @dataclass(frozen=True)
 class SocketConfig:
@@ -156,7 +155,6 @@ class MetaConfig:
         if errors:
             return ValidationResult.create_failure(f"MetaConfig validation failed: {'; '.join(errors)}")
         else:
-            result = ValidationResult.create_success(self)
             return ValidationResult(
                 success=True,
                 data=self,

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 # Import all classes to maintain backward compatibility
-from .base import Coder, Base as _Base
+from .base import Coder
 from .TokenUnit import TokenUnit
 from .Meta import Meta
 from .PolicyMeta import PolicyMeta

@@ -1,3 +1,25 @@
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+target-version = "py311"   # floor — setup.py enforces >=3.11.0
+line-length = 127          # match the legacy .flake8 advisory width
+# Gate the SHIPPED package (find_packages → knishioclient) + tests; skip dev/example
+# scripts that aren't in the wheel (the Python analog of the TS SDK's `eslint src`).
+exclude = [
+    "venv", ".venv", "env", "build", "dist", "*.egg-info", "docs", "__pycache__",
+    "demo", "bin", "integration-test.py", "self_test.py",
+]
+
+[tool.ruff.lint]
+# The enforced gate: syntax errors (E9) + pyflakes real bugs (F) + None/bool comparison.
+# Superset of the old CI blocking pass (E9,F63,F7); the cosmetic firehose is relaxed below.
+select = ["E9", "F", "E711", "E712"]
+ignore = [
+    "E501",   # line-too-long — formatting is `ruff format`'s job, not the lint gate (was advisory-only in .flake8)
+    "F403",   # `from ..exception import *` — intentional, circular-import avoidance (check.py / Molecule.py)
+    "F405",   # name-may-be-undefined-from-star — same intentional exception-star pattern
+    "F821",   # undefined-name — the SDK uses quoted forward-ref annotations ("Molecule"/"KnishIOClient"/…)
+              # for circular-import avoidance; pyflakes false-flags these (the CI omits F82 for the same reason)
+]

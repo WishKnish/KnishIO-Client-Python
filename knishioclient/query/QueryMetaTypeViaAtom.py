@@ -82,7 +82,7 @@ class QueryMetaTypeViaAtom(Query):
                 query_args["limit"] = "*"
             variables["queryArgs"] = query_args
 
-        variables["latest"] = latest == True
+        variables["latest"] = bool(latest)
         
         if cell_slug is not None:
             variables["cellSlugs"] = cell_slug if isinstance(cell_slug, list) else [cell_slug]

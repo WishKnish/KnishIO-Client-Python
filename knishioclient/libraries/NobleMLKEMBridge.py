@@ -10,7 +10,6 @@ This is a proven pattern also used by the PHP SDK to guarantee cross-SDK compati
 
 import json
 import subprocess
-import os
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 

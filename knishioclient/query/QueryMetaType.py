@@ -73,7 +73,7 @@ class QueryMetaType(Query):
             else:
                 variables.update({'values': value})
 
-        variables.update({'latest': latest == True})
+        variables.update({'latest': bool(latest)})
 
         if filter is not None:
             variables.update({'filter': filter})

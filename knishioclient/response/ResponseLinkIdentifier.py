@@ -8,4 +8,4 @@ class ResponseLinkIdentifier(Response):
 
     def success(self):
         data = self.data()
-        return data is not None and 'set' in data and data['set'] == True
+        return data is not None and 'set' in data and data['set'] is True

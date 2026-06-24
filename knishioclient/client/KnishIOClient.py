@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from typing import Optional, Dict, Any, Union, Awaitable, Callable
+from typing import Optional, Dict, Any, Union, Callable
 from dataclasses import dataclass
 import asyncio
 import time
@@ -39,11 +39,11 @@ from ..mutation import (
     MutationCreateMeta
 )
 from ..models import Wallet, Molecule
-from ..libraries.array import array_get, get_signed_atom
+from ..libraries.array import get_signed_atom
 from ..libraries.crypto import generate_bundle_hash
 from ..libraries import decimal, strings, crypto
-from ..config.standard_config import ClientConfig, MetaConfig, TokenConfig, TransferConfig
-from ..response.standard_response import StandardResponse, ResponseFactory, ValidationResult
+from ..config.standard_config import ClientConfig, MetaConfig, TokenConfig
+from ..response.standard_response import StandardResponse
 from .HttpClient import HttpClient
 
 
@@ -710,7 +710,6 @@ class KnishIOClient(object):
         :return: Response with auth token
         """
         from ..mutation import MutationRequestAuthorizationGuest
-        from ..models import AuthToken
         from ..libraries import crypto
         
         self.set_cell_slug(cell_slug or self.cell_slug())
@@ -731,8 +730,6 @@ class KnishIOClient(object):
         })
         
         if response.success():
-            # Create auth token from response
-            auth_token = AuthToken.create(response.data(), wallet)
             self.client().set_auth_token(response.token())  # Use token() for guest auth
             return response
         else:
@@ -746,7 +743,6 @@ class KnishIOClient(object):
         :param encrypt: Whether to use encryption
         :return: Response with auth token
         """
-        from ..models import AuthToken
         
         self.set_secret(secret)
         
@@ -775,8 +771,6 @@ class KnishIOClient(object):
         response = query.execute()
         
         if response.success():
-            # Create auth token from response
-            auth_token = AuthToken.create(response.data(), wallet)
             self.client().set_auth_token(response.auth_token())
             return response
         else:

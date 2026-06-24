@@ -2,7 +2,7 @@
 
 import math
 import json
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Union
 from json import JSONDecoder
 from ..libraries import strings, decimal, crypto
 from ..exception import *
