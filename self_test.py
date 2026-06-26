@@ -1077,26 +1077,22 @@ def test_cross_sdk_validation() -> bool:
 
                         mlkem_valid = False
                         try:
-                            # Test: Can we encrypt a message for their public key?
-                            test_message = "Cross-SDK ML-KEM768 compatibility test"
-                            encrypted_for_them = our_wallet.encrypt_message(
-                                test_message,
-                                mlkem_data['publicKey']
-                            )
-
-                            # If encryption succeeded, that means their public key format is compatible
-                            mlkem_valid = bool(encrypted_for_them and
-                                             encrypted_for_them.get('cipherText') and
-                                             encrypted_for_them.get('encryptedMessage'))
+                            # STRONG cross-SDK check (cycle 138): decrypt THEIR encryptedData with
+                            # our TESTSEED wallet (all 8 SDKs share the keypair) and assert the
+                            # plaintext — real decrypt-interop, not the old weak encrypt-to-pubkey.
+                            decrypted = our_wallet.decrypt_message(mlkem_data['encryptedData'])
+                            mlkem_valid = (decrypted == mlkem_data.get('originalPlaintext'))
 
                             if mlkem_valid:
-                                log(f"    Successfully encrypted for {sdk_name} public key", 'green')
+                                log(f"    Successfully decrypted {sdk_name}'s ML-KEM768 message", 'green')
+                            else:
+                                log(f"    Decrypted {sdk_name} plaintext mismatch", 'red')
 
                         except Exception as e:
-                            log(f"    Failed to encrypt for {sdk_name}: {str(e)}", 'red')
+                            log(f"    Failed to decrypt {sdk_name}: {str(e)}", 'red')
                             mlkem_valid = False
 
-                        log_test(f'{sdk_name} {molecule_type} encryption compatibility', mlkem_valid)
+                        log_test(f'{sdk_name} {molecule_type} decryption compatibility', mlkem_valid)
 
                         if not mlkem_valid:
                             all_valid = False
