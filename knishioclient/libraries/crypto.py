@@ -57,10 +57,21 @@ def hash_share(key):
 
 
 def encrypt_message(message: List | Dict | None, key: str) -> str:
+    """Classical NaCl ``crypto_box_seal`` message encryption via :class:`Soda` (non-PQ).
+
+    A general-purpose classical-crypto utility, NOT the SDK's canonical message envelope and
+    not used by the SDK's own transport. The canonical **post-quantum ML-KEM768** envelope
+    (``{cipherText, encryptedMessage}``) is ``Wallet.encrypt_message``.
+    """
     return strings.decode(Soda(CHARACTERS).encrypt(message, key))
 
 
 def decrypt_message(message: str, private_key, public_key) -> List | Dict | None:
+    """Classical NaCl ``crypto_box_seal_open`` message decryption via :class:`Soda` (non-PQ).
+
+    The classical counterpart to :func:`encrypt_message`. The canonical post-quantum
+    ML-KEM768 envelope is ``Wallet.decrypt_message``.
+    """
     return Soda(CHARACTERS).decrypt(message, private_key, public_key)
 
 
