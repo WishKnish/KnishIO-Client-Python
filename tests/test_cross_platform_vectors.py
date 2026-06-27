@@ -76,12 +76,11 @@ def _is_hex(s: str) -> bool:
 
 class WalletAddressVectorTest(unittest.TestCase):
     def test_wallet_address(self):
-        # DIVERGENCE (flagged cycle 135): Python Wallet.generate_key() does int(secret, 16),
-        # so it requires a HEX secret, while JS/TS/Rust derive a wallet address from arbitrary
-        # string secrets (the user_wallet='test-user-secret' / bitcoin_wallet='btc-wallet-secret'
-        # vector cases). Python is the lone outlier here. Out of scope for the ML-KEM arc —
-        # assert only the hex-secret case(s); the non-hex divergence is a separate follow-up.
-        for v in [t for t in VECTORS["wallet_generation"]["tests"] if _is_hex(t["secret"])]:
+        # FIXED (cycle 142): Wallet.generate_key() now normalizes a non-hex secret/position via
+        # shake256 (isHex(s) ? s : shake256(s)), mirroring JS/TS/Rust — so the arbitrary-string
+        # vectors (user_wallet='test-user-secret' / bitcoin_wallet='btc-wallet-secret') derive a
+        # wallet address byte-identically. ALL wallet_generation cases are asserted, no filter.
+        for v in VECTORS["wallet_generation"]["tests"]:
             with self.subTest(name=v["name"]):
                 self.assertEqual(
                     v["expectedBundle"],

@@ -181,10 +181,18 @@ class Wallet(object):
         :param position: str
         :return: str
         """
+        # Cross-SDK parity (c142): the secret/position are canonically hex, but the family
+        # (JS/TS/Rust) accepts arbitrary-string secrets by hashing them to hex first when not
+        # already hex (isHex(s) ? s : shake256(s)). Mirror that so a non-hex secret derives a
+        # wallet address byte-identically (the user_wallet/bitcoin_wallet vectors) instead of
+        # crashing on int(secret, 16). Hex secrets are unchanged.
+        hex_digits = set('0123456789abcdefABCDEF')
+        secret_hex = secret if (secret and all(c in hex_digits for c in secret)) else crypto.shake256(secret, 1024)
+        position_hex = position if (position and all(c in hex_digits for c in position)) else crypto.shake256(position, 256)
         # Converting secret to bigInt
         # Adding new position to the user secret to produce the indexed key
-        indexed_key = '%x' % np.add(np.array([int(secret, 16)], dtype='object'),
-                                    np.array([int(position, 16)], dtype='object'))[0]
+        indexed_key = '%x' % np.add(np.array([int(secret_hex, 16)], dtype='object'),
+                                    np.array([int(position_hex, 16)], dtype='object'))[0]
         # Hashing the indexed key to produce the intermediate key
         intermediate_key_sponge = shake()
         intermediate_key_sponge.update(indexed_key.encode('utf-8'))
