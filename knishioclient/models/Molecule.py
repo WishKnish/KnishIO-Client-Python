@@ -1104,21 +1104,30 @@ class Molecule(MoleculeStructure):
         if signing_wallet:
             first_atom_meta.set_signing_wallet(signing_wallet)
         
-        # Remove tokens from source buffer
+        # Remove tokens from source buffer (debit the FULL balance for UTXO conservation, matching the
+        # canonical JS/PHP/TS reference; the change is routed to the remainder B atom below so the V+B
+        # atoms sum to 0 — conserves for PARTIAL withdraws too). The atom args were ALSO in the wrong
+        # order (an old/scrambled signature: value/metaType swapped) and used a non-existent .bundleHash;
+        # corrected to the canonical Atom order + -full-balance, mirroring init_deposit_buffer.
+        # Atom args: position, wallet_address, isotope, token, value, batch_id, meta_type, meta_id, meta,
+        # ots_fragment, index.
         self.atoms.append(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
                 'B',
                 self.sourceWallet.token,
+                -float(self.sourceWallet.balance),
+                self.sourceWallet.batchId,
                 'walletBundle',
-                self.sourceWallet.bundleHash,
-                -amount,
-                metas=[first_atom_meta] if signing_wallet else []
+                self.sourceWallet.bundle,
+                self.final_metas(first_atom_meta.get(), self.sourceWallet),
+                None,
+                self.generate_index()
             )
         )
-        
-        # Add tokens to recipients
+
+        # Add tokens to recipients (shadow V atoms: no position/address, no wallet meta)
         for recipient_bundle, recipient_amount in (recipients or {}).items():
             self.atoms.append(
                 Atom(
@@ -1126,26 +1135,33 @@ class Molecule(MoleculeStructure):
                     None,
                     'V',
                     self.sourceWallet.token,
+                    recipient_amount,
+                    self.sourceWallet.batchId,
                     'walletBundle',
                     recipient_bundle,
-                    recipient_amount,
-                    self.sourceWallet.batchId
+                    None,
+                    None,
+                    self.generate_index()
                 )
             )
-        
-        # Add remainder to buffer
+
+        # Add remainder to buffer (the change from the full-balance debit; metaId -> remainder bundle)
         self.atoms.append(
             Atom(
                 self.remainderWallet.position,
                 self.remainderWallet.address,
                 'B',
                 self.sourceWallet.token,
+                float(self.sourceWallet.balance) - amount,
+                self.remainderWallet.batchId,
                 'walletBundle',
-                self.remainderWallet.bundleHash,
-                self.sourceWallet.balance - amount
+                self.remainderWallet.bundle,
+                self.final_metas({}, self.remainderWallet),
+                None,
+                self.generate_index()
             )
         )
-        
+
         return self
     
     def init_authorization(self):

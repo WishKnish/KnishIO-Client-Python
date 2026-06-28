@@ -562,6 +562,41 @@ class TestBufferDepositConservation(unittest.TestCase):
                 self.assertEqual(tv["expectedBufferValue"], b_value, "buffer B")
                 self.assertEqual(tv["expectedRemainderValue"], v_values[1], "remainder V")
 
+    def test_buffer_withdraw_conservation(self):
+        # Cross-SDK parity (cycle 148): init_withdraw_buffer must debit the FULL source balance so a
+        # PARTIAL withdraw still conserves (Σ V+B = 0), matching JS/PHP/TS/Kotlin/C++. (Pre-fix Python
+        # debited only -amount → Σ = balance-amount ≠ 0.) Atom order: source B (-balance),
+        # recipient V (+amount), remainder B (+(balance-amount)) — TWO B atoms, ONE V atom.
+        for tv in VECTORS["vectors"]["buffer_withdraw_conservation"]["tests"]:
+            with self.subTest(name=tv["name"]):
+                source = Wallet.create(secret=self.SECRET, token="BUFTOK")
+                source.balance = tv["sourceBalance"]
+                molecule = Molecule(
+                    secret=self.SECRET,
+                    bundle=source.bundle,
+                    source_wallet=source,
+                    cell_slug="buftest",
+                )
+                # Withdraw `amount` to the caller's own bundle (mirrors the client wrapper).
+                molecule.init_withdraw_buffer({source.bundle: tv["amount"]}, None)
+
+                total = 0
+                b_values = []
+                v_value = None
+                for atom in molecule.atoms:
+                    if atom.isotope in ("V", "B"):
+                        total += int(atom.value)
+                        if atom.isotope == "B":
+                            b_values.append(atom.value)
+                        else:
+                            v_value = atom.value
+
+                self.assertEqual(tv["expectedSum"], str(total), "sum V+B")
+                # Emit order: source B (full-balance debit), recipient V (+amount), remainder B (+change).
+                self.assertEqual(tv["expectedSourceValue"], b_values[0], "source B")
+                self.assertEqual(tv["expectedRecipientValue"], v_value, "recipient V")
+                self.assertEqual(tv["expectedRemainderValue"], b_values[1], "remainder B")
+
 
 # ===========================================================================
 # Runner
