@@ -255,3 +255,25 @@ class Wallet(object):
 
         decrypted = Wallet.decrypt_with_shared_secret(encrypted_message, shared_secret)
         return loads(decrypted.decode('utf-8'))
+
+    def hash_share(self, pubkey: str) -> str:
+        """Canonical cross-SDK hashShare: standard base64 of SHAKE256(pubkey_utf8, 8 bytes) — byte-
+        matches the validator's hash_share and the JS/Kotlin/PHP/TS hashShare. Deliberately NOT
+        ``crypto.hash_share`` / ``Soda.short_hash``, which encode via Base58 (a big-integer base
+        conversion, not RFC-4648) and so do NOT interoperate with the validator. PQ-transport Phase E."""
+        return Wallet.serialize_key(shake(pubkey.encode('utf-8')).digest(8))
+
+    def encrypt_string_ml768(self, message: Any, recipient_pubkey: str) -> str:
+        """Post-quantum (ML-KEM768) CipherHash request envelope: a stringified single-recipient map
+        ``{ "<hash_share(recipient_pubkey)>": {cipherText, encryptedMessage} }`` (object-valued, via
+        :meth:`encrypt_message`). Matches the Rust validator's CipherHash handler. PQ-transport Phase E."""
+        return dumps({self.hash_share(recipient_pubkey): self.encrypt_message(message, recipient_pubkey)})
+
+    def decrypt_my_message_ml768(self, mapping: Dict[str, Dict[str, str]]) -> Any:
+        """Decrypt a CipherHash response map addressed to THIS wallet's ML-KEM pubkey
+        (``hash_share(self.pubkey)``) → the parsed inner GraphQL response. ``None`` if no entry.
+        Mirrors the JS/PHP ``decryptMyMessageML768``. PQ-transport Phase E."""
+        envelope = mapping.get(self.hash_share(self.pubkey))
+        if envelope is None:
+            return None
+        return self.decrypt_message(envelope)

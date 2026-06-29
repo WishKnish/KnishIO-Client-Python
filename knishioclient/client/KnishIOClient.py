@@ -289,6 +289,12 @@ class KnishIOClient(object):
         # Otherwise use profile authentication
         return self.request_profile_auth_token(secret, encrypt)
 
+    def switch_encryption(self, encrypt: bool):
+        """PQ-transport Phase E: toggle the encrypted (ML-KEM CipherHash) transport on the active
+        session. The auth token + AUTH source wallet + validator pubkey were plumbed at auth."""
+        self.client().set_encryption(encrypt)
+        return encrypt
+
     def create_token(self, token_slug: str, initial_amount,
                      token_metadata=None, units=None):
         data_metas = token_metadata or {}
@@ -756,17 +762,20 @@ class KnishIOClient(object):
         # Create auth mutation
         query = self.create_molecule_mutation(MutationRequestAuthorization, molecule)
         
-        # Add encryption meta if requested
-        if encrypt:
-            query.fill_molecule([{'encrypt': 'true'}])
-        else:
-            query.fill_molecule()
-        
+        # PQ-transport Phase E: the AUTH source wallet's ML-KEM pubkey is conveyed as a SIGNED
+        # walletPubkey U-atom meta inside init_authorization (so the validator can encrypt CipherHash
+        # responses back to it). fill_molecule takes no meta args.
+        query.fill_molecule()
+
         # Execute the mutation
         response = query.execute()
-        
+
         if response.success():
-            self.client().set_auth_token(response.auth_token())
+            # Plumb the auth token + the validator's ML-KEM pubkey + the AUTH source wallet (the one
+            # that decrypts CipherHash responses) into the transport, and set the session encryption
+            # flag to match the requested mode.
+            self.client().set_auth_data(response.auth_token(), response.pub_key(), wallet)
+            self.client().set_encryption(encrypt)
             return response
         else:
             raise UnauthenticatedException(f'Profile authentication failed: {response.reason()}')
