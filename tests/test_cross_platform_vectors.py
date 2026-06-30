@@ -112,6 +112,16 @@ class Mlkem768VectorTest(unittest.TestCase):
         )
         self.assertEqual(v["expectedPlaintext"], plaintext, "ML-KEM768 decrypt plaintext mismatch")
 
+    # PQ-transport hardening: a stale/non-PQ validator advertises a ~48-byte `key`; encrypt_message
+    # must fail with an actionable error, not a cryptic bridge crash.
+    def test_mlkem768_encrypt_rejects_non_1184_key(self):
+        v = VECTORS["mlkem768"]["keygen"]
+        wallet = Wallet(secret=v["secret"], token=v["token"], position=v["position"])
+        short_key = Wallet.serialize_key(bytes(48))
+        with self.assertRaises(ValueError) as ctx:
+            wallet.encrypt_message({"q": 1}, short_key)
+        self.assertIn("expected 1184 (ML-KEM-768)", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

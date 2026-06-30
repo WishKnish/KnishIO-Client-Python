@@ -227,6 +227,17 @@ class Wallet(object):
         message_bytes = message_string.encode('utf-8')
         deserialized_pubkey = Wallet.deserialize_key(recipient_pubkey)
 
+        # ML-KEM-768 public keys are exactly 1184 bytes. A wrong-length key here almost always means the
+        # node did not advertise an ML-KEM public key in its auth `key` field (e.g. a validator predating
+        # the PQ-transport build). Fail with an actionable message rather than a cryptic bridge error.
+        ML_KEM_768_PUBLIC_KEY_BYTES = 1184
+        if len(deserialized_pubkey) != ML_KEM_768_PUBLIC_KEY_BYTES:
+            raise ValueError(
+                f'KnishIO: cannot ML-KEM-encrypt — recipient public key is {len(deserialized_pubkey)} bytes, '
+                f'expected {ML_KEM_768_PUBLIC_KEY_BYTES} (ML-KEM-768). The node likely did not advertise an ML-KEM '
+                'public key (upgrade the validator to a PQ-transport build), or authenticate with encrypt=False.'
+            )
+
         # Use @noble/post-quantum via Node.js bridge for 100% cross-SDK compatibility
         # Returns (ciphertext, shared_secret) matching JavaScript SDK
         ciphertext, shared_secret = crypto.noble_bridge_encaps(deserialized_pubkey)
