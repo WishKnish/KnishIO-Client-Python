@@ -1,7 +1,9 @@
-# Python SDK publish — tag-driven PyPI publish (cycle 177).
-# Push a bare semver tag (e.g. `0.9.1`) → ruff/pytest gate → build sdist+wheel → twine upload.
-# PREREQUISITE: add the repo secret `PYPI_API_TOKEN` (a PyPI API token, project- or account-scoped).
-# Without it the upload step fails.
+# Python SDK publish — tag-driven PyPI publish via Trusted Publishing / OIDC (cycle 177).
+# Push a bare semver tag (e.g. `0.9.1`) → ruff/pytest gate → build sdist+wheel → upload.
+#
+# Auth = PyPI Trusted Publishing (OIDC) — NO long-lived PYPI_API_TOKEN. One-time maintainer setup:
+#   pypi.org → the `knishioclient` project → Settings → Publishing → add a GitHub Actions trusted
+#   publisher: owner `WishKnish`, repository `KnishIO-Client-Python`, workflow `publish.yml`.
 name: Publish
 
 on:
@@ -9,9 +11,13 @@ on:
     tags:
       - '[0-9]*'
 
+permissions:
+  id-token: write   # OIDC for PyPI Trusted Publishing
+  contents: write   # create the GitHub Release
+
 jobs:
   publish:
-    name: build, test, publish to PyPI
+    name: build, test, publish to PyPI (Trusted Publishing)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +30,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff pytest build twine
+          pip install ruff pytest build
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       # The Python SDK shells out to a Node `@noble/post-quantum` bridge for ML-KEM, so the
@@ -48,15 +54,12 @@ jobs:
       - name: Build sdist + wheel
         run: python -m build
 
-      - name: Publish to PyPI
-        run: twine upload dist/*
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+      # OIDC trusted publishing: no PYPI_API_TOKEN; the action authenticates via the id-token and
+      # uploads everything in dist/.
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
