@@ -134,7 +134,26 @@ class EnhancedPythonIntegrationTest:
             enhanced_client = KnishIOClient.create_enhanced(client_config)
             enhanced_client.set_secret(self.test_secret)
             enhanced_client.set_cell_slug(self.cell_slug)
-            
+
+            # Full (profile) authorization — the validator requires a bundle-bound
+            # JWT for ProposeMolecule; without it molecule writes are rejected.
+            # request_auth_token drives its own event loop internally, and this
+            # harness already runs inside asyncio.run() — dispatch to a worker
+            # thread (no running loop there) to avoid "loop is already running".
+            import concurrent.futures
+
+            def _authorize():
+                # The SDK's sync wrapper resolves a loop via get_event_loop();
+                # a worker thread has none — give it a fresh one.
+                asyncio.set_event_loop(asyncio.new_event_loop())
+                try:
+                    return enhanced_client.request_auth_token(self.test_secret, self.cell_slug)
+                finally:
+                    asyncio.get_event_loop().close()
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                executor.submit(_authorize).result()
+
             self.client = enhanced_client
             
             log_test("Enhanced KnishIOClient creation", True)
@@ -316,12 +335,15 @@ class EnhancedPythonIntegrationTest:
                 "cellSlug": self.cell_slug
             }
             
+            # Contract: from_dict is lenient (no raise); invalid configs are caught
+            # by explicit .validate(). Either a constructor raise or a failed
+            # validation counts as the error being handled.
             try:
-                ClientConfig.from_dict(invalid_config)
-                validation_caught_error = False
+                invalid_client_config = ClientConfig.from_dict(invalid_config)
+                validation_caught_error = not invalid_client_config.validate().success
             except Exception:
                 validation_caught_error = True
-            
+
             log_test("Invalid config error handling", validation_caught_error)
             
             # Test ValidationResult pattern

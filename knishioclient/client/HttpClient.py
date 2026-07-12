@@ -80,7 +80,32 @@ class HttpClient(object):
         return True
 
     def send(self, request: str, options: dict = None):
-        loop = asyncio.get_event_loop()
+        # Sync-over-async bridge. Three environments to handle:
+        #  1. No event loop in this thread (plain sync caller) → create one.
+        #  2. A non-running loop exists → reuse it (legacy behavior).
+        #  3. A loop is ALREADY RUNNING in this thread (caller is inside asyncio,
+        #     e.g. the enhanced async client API) → run_until_complete would raise
+        #     "This event loop is already running"; execute on a private loop in a
+        #     worker thread instead.
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        if loop.is_running():
+            import concurrent.futures
+
+            def _run_in_fresh_loop():
+                inner_loop = asyncio.new_event_loop()
+                try:
+                    return inner_loop.run_until_complete(self.__send(request, options))
+                finally:
+                    inner_loop.close()
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                return executor.submit(_run_in_fresh_loop).result()
+
         response = loop.run_until_complete(asyncio.gather(self.__send(request, options)))
         return array_get(response, '0')
 

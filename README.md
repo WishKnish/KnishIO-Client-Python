@@ -31,14 +31,28 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install the SDK
 pip install knishioclient
 
-# Or install from requirements.txt for development
-pip install -r requirements.txt
+# Or install runtime + dev/test tooling for development
+pip install -r requirements.txt -r requirements-dev.txt
 
 # Install Node.js dependencies for ML-KEM768 bridge
 cd bin
 npm install
 cd ..
 ```
+
+### Dependency security & reproducible installs
+
+`requirements.txt` declares runtime dependencies with lower-bound (`>=`) floors so the
+library composes with a consumer's own dependency graph, and `requirements-dev.txt` adds
+the lint/test/audit/build tooling (`ruff`, `pytest`, `pip-audit`, `build`). For a fully
+pinned, reproducible install we also commit `requirements.lock` — a universal,
+hash-verified resolution of the runtime closure generated with
+`uv pip compile requirements.txt --universal --generate-hashes -o requirements.lock`;
+regenerate it whenever `requirements.txt` changes and install it with
+`pip install -r requirements.lock` in environments that need byte-for-byte reproducibility
+(the floors in `requirements.txt` remain the source of truth for supported versions). The
+dependency set is scanned for known CVEs with `pip-audit -r requirements.txt` (and
+`pip-audit -r requirements.lock`); the current closure reports **no known vulnerabilities**.
 
 After installation, import the SDK in your project:
 

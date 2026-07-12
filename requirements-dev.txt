@@ -1,0 +1,14 @@
+# Development / test tooling for the KnishIO Python SDK.
+# Runtime dependencies live in requirements.txt; this file adds only the tools
+# used to lint, test, and security-audit the package (never shipped in the wheel).
+#
+#   python -m pip install -r requirements.txt -r requirements-dev.txt
+#
+# Floors track the tools already exercised in CI (.github/workflows/*.yml runs
+# `ruff check` + `pytest`) plus pip-audit for the dependency security scan.
+-r requirements.txt
+
+pytest>=8.2.0        # test runner (pytest.ini → testpaths=tests)
+ruff>=0.6.0          # lint gate (config in pyproject.toml [tool.ruff.lint])
+pip-audit>=2.7.0     # dependency vulnerability scan (see README "Dependency security")
+build>=1.2.0         # sdist/wheel build used by the publish workflow
