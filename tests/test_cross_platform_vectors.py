@@ -123,5 +123,45 @@ class Mlkem768VectorTest(unittest.TestCase):
         self.assertIn("expected 1184 (ML-KEM-768)", str(ctx.exception))
 
 
+class NaClVectorTest(unittest.TestCase):
+    """Classical NaCl (X25519 scalarmult_base + crypto_box/secretbox + sealed-box),
+    byte-frozen against the reference tweetnacl. libnacl (ctypes → libsodium) must
+    reproduce these byte-for-byte, proving classical cross-SDK parity."""
+
+    def test_nacl_scalarmult_base(self):
+        import base64, libnacl
+        for v in VECTORS["nacl"]["scalarMultBase"]:
+            with self.subTest(sk=v["secretKeyHex"][:8]):
+                pk = libnacl.crypto_scalarmult_base(bytes.fromhex(v["secretKeyHex"]))
+                self.assertEqual(
+                    v["expectedPublicKey"], base64.b64encode(pk).decode(),
+                    "X25519 scalarmult_base mismatch",
+                )
+
+    def test_nacl_crypto_box(self):
+        import base64, libnacl
+        v = VECTORS["nacl"]["cryptoBox"]
+        boxed = libnacl.crypto_box(
+            v["plaintext"].encode(),
+            base64.b64decode(v["nonce"]),
+            base64.b64decode(v["recipientPublicKey"]),
+            bytes.fromhex(v["senderSecretKeyHex"]),
+        )
+        self.assertEqual(
+            v["expectedBox"], base64.b64encode(boxed).decode(),
+            "crypto_box ciphertext mismatch",
+        )
+
+    def test_nacl_sealed_box_open(self):
+        import base64, libnacl
+        v = VECTORS["nacl"]["sealedBox"]
+        pt = libnacl.crypto_box_seal_open(
+            base64.b64decode(v["sealed"]),
+            base64.b64decode(v["recipientPublicKey"]),
+            bytes.fromhex(v["recipientSecretKeyHex"]),
+        )
+        self.assertEqual(v["expectedPlaintext"], pt.decode(), "sealed-box open mismatch")
+
+
 if __name__ == "__main__":
     unittest.main()
