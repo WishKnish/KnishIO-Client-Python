@@ -10,21 +10,49 @@ on:
   push:
     tags:
       - '[0-9]*'
+  # Dry run. This workflow is otherwise reachable only by pushing a tag, which publishes — so
+  # every change to it would ship unexercised. A dispatch runs the version gate, the full
+  # lint/test path and the wheel-import gate, then stops, because the publish job is guarded
+  # on `github.event_name == 'push'`.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version to dry-run the gate against, e.g. 0.9.4. Publishes NOTHING.'
+        required: true
+        type: string
 
 permissions:
   id-token: write   # OIDC for PyPI Trusted Publishing
   contents: write   # create the GitHub Release
 
 jobs:
-  publish:
-    name: build, test, publish to PyPI (Trusted Publishing)
+  # Split out of the publish job on purpose: `environment: release` is a deployment gate that
+  # can require approval, and a dry run that uploads nothing should not have to pass it.
+  verify:
+    name: verify version + lint + test + importable wheel
     runs-on: ubuntu-latest
-    environment: release   # matches the PyPI trusted-publisher Environment + the repo's `release` env
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
+      # Refuse to publish a tag the manifest does not itself claim. Shared definition with
+      # python-package.yml and with local runs — see .github/scripts/check-version.sh.
+      - name: Verify tag matches the declared SDK version
+        # DISPATCH_TAG arrives via env, never interpolated into the shell text
+        # (workflow-injection hygiene).
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            EXPECTED="${GITHUB_REF#refs/tags/}"
+          else
+            EXPECTED="$DISPATCH_TAG"
+          fi
+          bash .github/scripts/check-version.sh "$EXPECTED"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
@@ -37,7 +65,7 @@ jobs:
       # The Python SDK shells out to a Node `@noble/post-quantum` bridge for ML-KEM, so the
       # test suite needs the bridge deps installed (mirrors python-package.yml).
       - name: Set up Node.js (for the ML-KEM noble bridge)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
 
@@ -55,12 +83,49 @@ jobs:
       - name: Build sdist + wheel
         run: python -m build
 
+      # A green build is NOT evidence that the artifact is usable. 0.9.2 published a wheel
+      # that could not be imported at all: setup.py uses find_packages(), which silently
+      # omits directories without an __init__.py, so knishioclient.config was missing from
+      # the distribution. Every test passed — they ran against the source tree, not the
+      # wheel. Install the built artifact into a clean venv and import it.
+      - name: Built wheel installs and imports (clean venv)
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/wheelcheck
+          /tmp/wheelcheck/bin/pip install --quiet dist/*.whl
+          /tmp/wheelcheck/bin/python -c "
+          import knishioclient, knishioclient.config, knishioclient.libraries.check
+          print('imported OK, version', knishioclient.__version__)
+          "
+
+  publish:
+    name: publish to PyPI (Trusted Publishing)
+    needs: verify
+    if: github.event_name == 'push'   # dispatch = dry run; never publishes
+    runs-on: ubuntu-latest
+    environment: release   # matches the PyPI trusted-publisher Environment + the repo's `release` env
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+
+      - name: Build sdist + wheel
+        run: python -m build
+
       # OIDC trusted publishing: no PYPI_API_TOKEN; the action authenticates via the id-token and
       # uploads everything in dist/.
       - name: Publish to PyPI (Trusted Publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true

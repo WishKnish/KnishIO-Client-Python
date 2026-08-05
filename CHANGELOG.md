@@ -16,6 +16,24 @@ history. Entries at and below `0.8.1` are reconstructed from commit messages
 rather than written at release time; where the history does not substantiate a
 detail, the entry says so instead of guessing.
 
+## [0.9.4] — 2026-08-05
+
+### Security
+
+- Dependency floors raised to the advisory fix versions: `aiohttp>=3.14.3` (was `>=3.14.1`,
+  PYSEC-2026-3545 / -3546 / -3547) and `cryptography>=50.0.0` (was `>=46.0.6`,
+  PYSEC-2026-3552). `requirements.lock` regenerated with the `uv pip compile` invocation
+  recorded in its own header; only those two pins moved.
+
+  `setup.py` derives `install_requires` from `requirements.txt`, so these floors are the
+  shipped dependency contract. They previously sat *below* the fix versions, which meant a
+  constrained resolver could still land a consumer on the vulnerable `aiohttp 3.14.1` even
+  though a default `pip install` would not. Fixed at the declaration rather than by
+  suppressing the audit.
+
+  No published artifact was vulnerable: `requirements.txt` carries floors, not pins, and the
+  advisories were against the CI lock. 0.9.3 on PyPI is unaffected and remains available.
+
 ## [0.9.3] — 2026-08-05
 
 ### Added
