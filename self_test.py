@@ -22,6 +22,7 @@ from typing import Dict, List, Optional, Any
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(__file__))
 
+from knishioclient import __version__ as SDK_VERSION
 from knishioclient.libraries import crypto, strings
 from knishioclient.models.Wallet import Wallet
 from knishioclient.models.Molecule import Molecule
@@ -64,11 +65,27 @@ class Colors:
 # Global results storage
 results = {
     'sdk': 'Python',
-    'version': '1.0.0',  # TODO: Get from package version
+    # Read from the package rather than a literal. This was hardcoded to '1.0.0',
+    # so every results file claimed a version the project has never published — an
+    # external audit read it and concluded the Python SDK had no version manifest
+    # and had never been released. The gauntlet now fails a results file whose
+    # version disagrees with its manifest, which a literal would trip permanently.
+    'version': SDK_VERSION,
     'timestamp': None,
+    # Run identity. shared-test-results/ holds one mutable file per SDK with no record of
+    # which run wrote it, so a later standalone run silently replaces the evidence an
+    # already-published report was built from.
+    'runId': os.environ.get('KNISHIO_RUN_ID') or None,
     'tests': {},
     'molecules': {},
-    'crossSdkCompatible': True
+    # Starts False. This was True, making "fully cross-SDK compatible" the default state
+    # before a single peer molecule had been examined — so every early return out of
+    # test_cross_sdk_validation published a pass. A verdict must be earned; the safe
+    # default for a check that has not run is "failed".
+    'crossSdkCompatible': False,
+    # Coverage behind the verdict. The boolean alone cannot distinguish "validated seven
+    # peers, all passed" from "validated nothing and so found no failures".
+    'crossValidation': {'ran': False, 'targetsExpected': 0, 'targetsValidated': 0},
 }
 
 
@@ -793,6 +810,187 @@ def test_shadow_wallet_claim(config: Dict) -> bool:
         return False
 
 
+def find_canonical_vectors_path() -> Optional[Path]:
+    """Locate canonical-patent-vectors.json: env override, SDK-vendored fixture, or shared-results dir."""
+    candidates = []
+    env_path = os.environ.get('KNISHIO_CANONICAL_VECTORS')
+    if env_path:
+        candidates.append(Path(env_path))
+    candidates.append(Path(os.path.dirname(__file__)) / 'tests' / 'fixtures' / 'canonical-patent-vectors.json')
+    shared_dir = os.environ.get('KNISHIO_SHARED_RESULTS')
+    if shared_dir:
+        candidates.append(Path(shared_dir).resolve() / 'canonical-patent-vectors.json')
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def test_buffer_family() -> bool:
+    """Test B1: Buffer Family Test (deposit + withdraw, vector-driven)
+
+    B-isotope builders (init_deposit_buffer / init_withdraw_buffer) validated against the shared
+    canonical-patent-vectors.json, matching the other SDKs (JS/TS/PHP/Kotlin/Rust/C++). For each
+    buffer_deposit_conservation / buffer_withdraw_conservation case we build + sign the molecule and
+    assert: atom shape/values match the vector, the V+B sum == 0 (full-balance debit conserves even for
+    a PARTIAL op), AND molecule.check() accepts the molecule. Molecular hashes are NOT frozen (random
+    positions). Reads the vendored fixture; SKIPS if absent (standalone CI); FAILS if absent AND
+    KNISHIO_REQUIRE_VECTORS=true (an orchestrated cross-SDK run must not silently skip parity coverage).
+    """
+    log('\nB1. Buffer Family Test (deposit + withdraw, vector-driven)', 'blue')
+
+    vectors_path = find_canonical_vectors_path()
+    if vectors_path is None:
+        must_have = os.environ.get('KNISHIO_REQUIRE_VECTORS') == 'true'
+        results['tests']['bufferFamily'] = {
+            'passed': False,
+            'skipped': not must_have,
+            'molecularHash': None,
+            'atomCount': 0,
+            'validationError': 'canonical-patent-vectors.json absent'
+        }
+        if must_have:
+            log('  FAILED: canonical-patent-vectors.json absent (KNISHIO_REQUIRE_VECTORS=true)', 'red')
+            return False
+        log('  SKIPPED: canonical-patent-vectors.json absent (standalone CI)', 'yellow')
+        return True  # skip, not fail — recorded as skipped, never counted as a pass
+
+    try:
+        with open(vectors_path, 'r') as f:
+            vectors = json.load(f)['vectors']
+
+        secret = generate_secret('buffer-family-self-test-seed')
+        token = 'BUFTOK'
+        all_pass = True
+        last_hash = None
+        atom_total = 0
+
+        # ---- DEPOSIT: V (source -balance) -> B (buffer +amount) -> V (remainder +(balance-amount)) ----
+        for tv in vectors['buffer_deposit_conservation']['tests']:
+            source = Wallet.create(secret=secret, token=token)
+            source.balance = tv['sourceBalance']
+
+            molecule = Molecule(secret=secret, bundle=source.bundle, source_wallet=source)
+            molecule.init_deposit_buffer(tv['amount'], {})
+            set_fixed_timestamps(molecule)
+            molecule.sign()
+
+            total = sum(int(a.value) for a in molecule.atoms if a.isotope in ('V', 'B'))
+            shape = (
+                len(molecule.atoms) == 3
+                and molecule.atoms[0].isotope == 'V' and molecule.atoms[0].value == tv['expectedSourceValue']
+                and molecule.atoms[1].isotope == 'B' and molecule.atoms[1].value == tv['expectedBufferValue']
+                and molecule.atoms[2].isotope == 'V' and molecule.atoms[2].value == tv['expectedRemainderValue']
+            )
+            ok = shape and str(total) == tv['expectedSum']
+            if ok:
+                try:
+                    ok = molecule.check(source)
+                except Exception as e:
+                    ok = False
+                    log(f"    check() error: {str(e)}", 'red')
+            log_test(f"deposit {tv['name']} conserves (V+B sum 0; cross-isotope bypass)", ok)
+            all_pass = all_pass and ok
+            last_hash = molecule.molecularHash
+            atom_total += len(molecule.atoms)
+
+        # ---- WITHDRAW: B (source -balance) -> V (recipient +amount) -> B (remainder +(balance-amount)) ----
+        for tv in vectors['buffer_withdraw_conservation']['tests']:
+            source = Wallet.create(secret=secret, token=token)
+            source.balance = tv['sourceBalance']
+
+            molecule = Molecule(secret=secret, bundle=source.bundle, source_wallet=source)
+            # Withdraw to the caller's own bundle (single recipient), mirroring the client wrapper.
+            molecule.init_withdraw_buffer({source.bundle: tv['amount']}, None)
+            set_fixed_timestamps(molecule)
+            molecule.sign()
+
+            total = sum(int(a.value) for a in molecule.atoms if a.isotope in ('V', 'B'))
+            shape = (
+                len(molecule.atoms) == 3
+                and molecule.atoms[0].isotope == 'B' and molecule.atoms[0].value == tv['expectedSourceValue']
+                and molecule.atoms[1].isotope == 'V' and molecule.atoms[1].value == tv['expectedRecipientValue']
+                and molecule.atoms[2].isotope == 'B' and molecule.atoms[2].value == tv['expectedRemainderValue']
+            )
+            ok = shape and str(total) == tv['expectedSum']
+            if ok:
+                try:
+                    ok = molecule.check(source)
+                except Exception as e:
+                    ok = False
+                    log(f"    check() error: {str(e)}", 'red')
+            log_test(f"withdraw {tv['name']} conserves (B+V sum 0; cross-isotope bypass)", ok)
+            all_pass = all_pass and ok
+            last_hash = molecule.molecularHash
+            atom_total += len(molecule.atoms)
+
+        # ---- NEGATIVE: molecules that must be REJECTED (buffer_conservation_negative) ----
+        # The two loops above only prove VALID molecules are ACCEPTED; that gap concealed a
+        # live fail-open defect in Kotlin (V-only conservation gated on B/F presence with no
+        # isotopeB/isotopeF to own it). Build a VALID molecule with the SDK's own builder,
+        # apply the vector's single tamper mutation, re-sign, and assert rejection. Absent key
+        # (older fixture) is handled like the absent-fixture case above: simply no-op, not a crash.
+        for tv in vectors.get('buffer_conservation_negative', {}).get('tests', []):
+            source = Wallet.create(secret=secret, token=token)
+            source.balance = tv['sourceBalance']
+
+            molecule = Molecule(secret=secret, bundle=source.bundle, source_wallet=source)
+            build_from = tv['buildFrom']
+            if build_from == 'deposit':
+                molecule.init_deposit_buffer(tv['amount'], {})
+            elif build_from == 'withdraw':
+                molecule.init_withdraw_buffer({source.bundle: tv['amount']}, None)
+            else:
+                raise ValueError(f"unknown buildFrom '{build_from}' in buffer_conservation_negative")
+
+            # Tamper target selects the first/last atom of that isotope in emission order;
+            # molecule.atoms is still in append order here (pre-sign, pre-sort).
+            tamper = tv['tamper']
+            isotope = tamper['target'][-1]  # 'firstV'/'lastV' -> 'V'; 'firstB'/'lastB' -> 'B'
+            matches = [a for a in molecule.atoms if a.isotope == isotope]
+            target_atom = matches[0] if tamper['target'].startswith('first') else matches[-1]
+            setattr(target_atom, tamper['field'], tamper['to'])
+
+            set_fixed_timestamps(molecule)
+            molecule.sign()
+
+            rejected = False
+            reject_reason = None
+            try:
+                molecule.check(source)
+            except Exception as e:
+                rejected = True
+                reject_reason = f"{type(e).__name__}: {str(e)}"
+
+            log_test(f"{tv['name']} rejected ({tv['reason']})", rejected,
+                      None if rejected else 'molecule was NOT rejected')
+            if rejected:
+                log(f"    rejected via {reject_reason}", 'cyan')
+            all_pass = all_pass and rejected
+            last_hash = molecule.molecularHash
+            atom_total += len(molecule.atoms)
+
+        results['tests']['bufferFamily'] = {
+            'passed': all_pass,
+            'skipped': False,
+            'molecularHash': last_hash,
+            'atomCount': atom_total,
+            'validationError': None if all_pass else 'buffer family vector validation failed'
+        }
+        return all_pass
+
+    except Exception as e:
+        log(f"  ❌ ERROR: {str(e)}", 'red')
+        results['tests']['bufferFamily'] = {
+            'passed': False,
+            'skipped': False,
+            'molecularHash': None,
+            'atomCount': 0,
+            'validationError': str(e)
+        }
+        return False
+
+
 def test_mlkem768(config: Dict) -> bool:
     """Test 5: ML-KEM768 Encryption Test"""
     log('\n5. ML-KEM768 Encryption Test', 'blue')
@@ -1028,25 +1226,47 @@ def test_cross_sdk_validation() -> bool:
     """Test 7: Cross-SDK Validation"""
     log('\n7. Cross-SDK Validation', 'blue')
 
-    # Check if cross-validation is disabled (Round 1 molecule generation only)
+    # Round 1 generates molecules and does not cross-validate, so it holds no opinion here
+    # and must not leave a verdict behind.
     if os.environ.get('KNISHIO_DISABLE_CROSS_VALIDATION') == 'true':
         log('  ⏭️  Cross-validation disabled for Round 1 (molecule generation only)', 'yellow')
+        results['crossValidation'] = {'ran': False, 'targetsExpected': 0, 'targetsValidated': 0}
         return True
 
     shared_results_dir = os.environ.get('KNISHIO_SHARED_RESULTS', '../shared-test-results')
     results_dir = Path(shared_results_dir).resolve()
+    results['crossValidation']['ran'] = True
 
+    # A missing shared directory in Round 2 is a HARD FAILURE, not a skip. This returned
+    # True — "compatible" — having found nothing to check. Absence of evidence must never
+    # be reported as evidence of compatibility.
     if not results_dir.exists():
-        log('  ⏭️  No other SDK results found for cross-validation', 'yellow')
-        return True
+        log('  ❌ Shared results directory not found — cross-validation CANNOT run', 'red')
+        results['crossSdkCompatible'] = False
+        return False
 
-    result_files = [f for f in results_dir.glob('*.json')
-                   if 'python' not in f.name.lower()]
+    # Scope to *-results.json. `glob('*.json')` also matched the canonical vector MASTERS
+    # that live in this directory (canonical-patent-vectors.json,
+    # cross-platform-test-vectors.json) and fed them into the peer loop as SDK results.
+    # They carry no 'molecules' object, so they inflated the apparent peer count while
+    # contributing to neither pass nor fail.
+    result_files = [f for f in results_dir.glob('*-results.json')
+                    if 'python' not in f.name.lower()]
 
+    # Zero peers in Round 2 means Round 2 did not happen.
     if not result_files:
-        log('  ⏭️  No other SDK results found for cross-validation', 'yellow')
-        return True
+        log('  ❌ No peer SDK results found — nothing to cross-validate', 'red')
+        results['crossSdkCompatible'] = False
+        return False
 
+    # Canonical set mirrors requiredMoleculeKeys in sdks/canonical-test-keys.json.
+    REQUIRED_MOLECULE_TYPES = [
+        'metadata', 'simpleTransfer', 'complexTransfer', 'tokenCreation',
+        'walletCreation', 'shadowWalletClaim', 'mlkem768',
+    ]
+
+    results['crossValidation']['targetsExpected'] = len(result_files)
+    peers_validated = 0
     all_valid = True
 
     for file_path in result_files:
@@ -1057,6 +1277,17 @@ def test_cross_sdk_validation() -> bool:
                 other_results = json.load(f)
 
             molecules = other_results.get('molecules', {})
+
+            # A peer must publish every molecule type before we can claim to have
+            # validated it. The loop below iterates the keys that are PRESENT, so an
+            # omitted molecule is indistinguishable from a validated one — which is how
+            # Kotlin's Round-2 drop of tokenCreation/walletCreation/shadowWalletClaim
+            # passed every peer on 2026-07-27.
+            absent = [t for t in REQUIRED_MOLECULE_TYPES if not molecules.get(t)]
+            if absent:
+                log(f"    ❌ {sdk_name} published no molecule for: {', '.join(absent)}", 'red')
+                log_test(f'{sdk_name} publishes all required molecules', False)
+                all_valid = False
 
             for molecule_type, molecule_data in molecules.items():
                 try:
@@ -1125,11 +1356,25 @@ def test_cross_sdk_validation() -> bool:
                     log(f"    Error: {str(e)}", 'red')
                     all_valid = False
 
+            peers_validated += 1
+
         except Exception as e:
             log(f"  ❌ Failed to load {sdk_name} results: {str(e)}", 'red')
+            all_valid = False
 
-    results['crossSdkCompatible'] = all_valid
-    return all_valid
+    # COVERAGE FLOOR. `all_valid` starts True and only becomes False on a DETECTED
+    # failure, so it records "nothing went wrong", not "everything was checked". Those
+    # differ whenever the loop examined fewer peers than it should have. Require both.
+    results['crossValidation']['targetsValidated'] = peers_validated
+    expected = results['crossValidation']['targetsExpected']
+
+    full_coverage = peers_validated == expected
+    if not full_coverage:
+        log(f'  ❌ Incomplete coverage: validated {peers_validated}/{expected} peer SDKs', 'red')
+    log(f'  📊 Cross-validation coverage: {peers_validated}/{expected} peer SDKs', 'blue')
+
+    results['crossSdkCompatible'] = all_valid and full_coverage
+    return results['crossSdkCompatible']
 
 
 def save_results():
@@ -1154,12 +1399,22 @@ def print_summary():
 
     total_tests = len(results['tests'])
     passed_tests = sum(1 for t in results['tests'].values() if t.get('passed', False))
+    # A skip is neither a pass nor a failure — bucket it separately so the summary
+    # can't silently agree with a false-green exit code (or the reverse).
+    skipped_tests = sum(1 for t in results['tests'].values()
+                        if t.get('skipped', False) and not t.get('passed', False))
+    failed_tests = total_tests - passed_tests - skipped_tests
 
     log(f"\nSDK: {results['sdk']} v{results['version']}")
     log(f"Timestamp: {results['timestamp']}")
 
-    color = 'green' if passed_tests == total_tests else 'red'
+    color = 'green' if failed_tests == 0 else 'red'
     log(f"\nTests Passed: {passed_tests}/{total_tests}", color)
+    if skipped_tests > 0:
+        log(f"Tests Skipped: {skipped_tests}/{total_tests}", 'yellow')
+        for name, t in results['tests'].items():
+            if t.get('skipped', False) and not t.get('passed', False):
+                log(f"  - {name}: {t.get('validationError', 'skipped')}", 'yellow')
 
     status = '✅ YES' if results['crossSdkCompatible'] else '❌ NO'
     color = 'green' if results['crossSdkCompatible'] else 'red'
@@ -1236,6 +1491,7 @@ def main():
     test_token_creation(config)
     test_wallet_creation(config)
     test_shadow_wallet_claim(config)
+    test_buffer_family()
     test_mlkem768(config)
     test_negative_cases()
     test_cross_sdk_validation()
@@ -1245,8 +1501,14 @@ def main():
     print_summary()
 
     # Exit with appropriate code
-    all_passed = all(t.get('passed', False) for t in results['tests'].values())
-    sys.exit(0 if (all_passed and results['crossSdkCompatible']) else 1)
+    # Round 1 generates molecules and deliberately does not cross-validate, so it has no
+    # crossSdkCompatible verdict to offer and must not be judged on one. Requiring it here
+    # fails every Round-1 run purely because the check was skipped by design — which is what
+    # happened the moment the field stopped defaulting to True. Only a run that actually
+    # performed cross-validation is accountable for its result.
+    cross_validation_applies = os.environ.get('KNISHIO_DISABLE_CROSS_VALIDATION') != 'true'
+    all_passed = all(t.get('passed', False) or t.get('skipped', False) for t in results['tests'].values())
+    sys.exit(0 if (all_passed and (not cross_validation_applies or results['crossSdkCompatible'])) else 1)
 
 
 if __name__ == '__main__':
