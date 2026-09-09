@@ -19,7 +19,7 @@ pip install knishioclient
 - Python 3.11 or higher
 - Node.js 16 or higher (required for ML-KEM768 quantum-resistant cryptography)
 - Virtual environment (recommended)
-- Required packages: numpy, cryptography, libnacl, base58, pycryptodome, aiohttp
+- Required packages: numpy, cryptography, libnacl, base58, aiohttp
 
 **Setup with virtual environment:**
 
