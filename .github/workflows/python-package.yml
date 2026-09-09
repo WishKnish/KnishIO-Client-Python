@@ -1,6 +1,6 @@
 name: Python package
 
-on: [push]
+on: [push, pull_request]
 
 jobs:
   # Catch version drift at commit time, not at release time. The publish workflow already
@@ -11,7 +11,10 @@ jobs:
     name: version consistency
     runs-on: ubuntu-latest
     steps:
+      # persist-credentials: false (2026-08) — nothing here pushes; a kept token is readable from .git/config.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
       - name: Declared versions agree
         run: bash .github/scripts/check-version.sh
 
@@ -21,6 +24,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      with:
+        persist-credentials: false
     - name: Set up Python
       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
       with:
@@ -29,12 +34,15 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt -r requirements-dev.txt
-    # Dependency audit gate: fail on known advisories in the runtime floors and
-    # the committed lock (requirements.lock is the reproducible CI resolution).
+    # Dependency audit gate: fail on known advisories in the runtime floors, the
+    # committed lock (requirements.lock is the reproducible CI resolution), and the
+    # dev toolchain — the dev set is where a build-time supply-chain attack lands,
+    # and it was the one requirement file nothing scanned until 2026-08.
     - name: pip-audit
       run: |
         pip-audit -r requirements.txt
         pip-audit -r requirements.lock
+        pip-audit -r requirements-dev.txt
     - name: Set up Node.js (for the ML-KEM noble bridge)
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
       with:
@@ -64,6 +72,7 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0
+        persist-credentials: false
 
     # If knishioclient/__init__.py's __version__ changed relative to the base commit,
     # CHANGELOG.md must carry a matching `## [<version>]` heading. No change → no-op.
