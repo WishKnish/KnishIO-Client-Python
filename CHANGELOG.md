@@ -61,6 +61,13 @@ detail, the entry says so instead of guessing.
   `__init__` and `initialize()` previously assigned it raw, so `mlkem_param_set=512` was silently
   accepted and only failed later, inside the ML-KEM bridge, while
   `set_mlkem_parameter_set(512)` had always rejected it.
+- The distribution no longer ships a top-level `tests` package. `setup.py` used a bare
+  `find_packages()`, and `tests/` has an `__init__.py`, so `top_level.txt` listed both
+  `knishioclient` and `tests` — installing the package put a generic `tests` module on the
+  consumer's import path, where it could shadow their own. Now excluded explicitly.
+- Distribution metadata corrected for a stable release: the `License` field read the literal
+  string `LICENSE` rather than `GPL-3.0-or-later` (disagreeing with the GPLv3 classifier it
+  already carried), and the maturity classifier still said `Development Status :: 2 - Pre-Alpha`.
 
 ### Notes
 

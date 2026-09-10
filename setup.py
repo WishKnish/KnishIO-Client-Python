@@ -19,7 +19,7 @@ setup(name='knishioclient',
       long_description=open("README.md", encoding='utf-8').read(),
       long_description_content_type="text/markdown",
       classifiers=[
-          'Development Status :: 2 - Pre-Alpha',
+          'Development Status :: 5 - Production/Stable',
           'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
           'Programming Language :: Python :: 3 :: Only',
           'Programming Language :: Python :: 3.11',
@@ -40,8 +40,11 @@ setup(name='knishioclient',
       },
       author='Eugene Teplitsky',
       author_email='eugene@wishknish.com',
-      license='LICENSE',
-      packages=find_packages(),
+      license='GPL-3.0-or-later',
+      # `tests` has an __init__.py, so a bare find_packages() ships it as a TOP-LEVEL
+      # package and puts `tests` on every consumer's import path, where it can shadow
+      # their own. Exclude it explicitly; PyPI versions cannot be replaced once published.
+      packages=find_packages(exclude=['tests', 'tests.*']),
       zip_safe=False,
       include_package_data=True,
       install_requires=open("requirements.txt").readlines()
