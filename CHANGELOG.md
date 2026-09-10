@@ -16,6 +16,61 @@ history. Entries at and below `0.8.1` are reconstructed from commit messages
 rather than written at release time; where the history does not substantiate a
 detail, the entry says so instead of guessing.
 
+## [1.0.0] — 2026-09-10
+
+### Added
+
+- A wallet now decrypts records addressed to **its own ML-KEM-768 identity even when configured at
+  ML-KEM-1024**, by deriving that identity on demand from the same 64-byte wallet seed. The seed is
+  parameter-set-independent, so both identities belong to one wallet; only the final keygen call
+  differs. Reading pre-bump 768 records therefore needs no configuration change and no second
+  wallet. The derived private key lives only for the duration of the `decrypt_message()` call and
+  is never cached on the wallet.
+- `Wallet.decrypt_my_message_ml()` tries both identities' `CipherHash` map keys, so an envelope a
+  pre-bump peer addressed to `hash_share(our_768_pubkey)` is found rather than missed.
+- `Wallet.mlkem_param_set_from_pubkey()` recovers a parameter set from a serialized public key's
+  length (FIPS 203's 1568/1184 lengths are disjoint).
+
+  Encapsulation and the advertised public key are unchanged and remain single-set: inbound is
+  permissive, outbound is strict. Reading a 768 record you own downgrades nothing — its
+  confidentiality was fixed at 768 by the sender — whereas permissive outbound would be a real
+  downgrade vector.
+
+### Changed
+
+- **ML-KEM-1024 is the default parameter set** for the post-quantum transport, replacing
+  ML-KEM-768. `Wallet`, `Molecule` and `KnishIOClient` accept an `mlkem_param_set` option (`1024`
+  default, `768` step-back); `KnishIOClient.set_mlkem_parameter_set()` validates it.
+- Encapsulation is strict and **raises** `ValueError` on a wrong-length recipient key rather than
+  silently downgrading to whatever the peer advertised.
+
+### Removed
+
+- `Wallet.encrypt_string_ml768()` and `Wallet.decrypt_my_message_ml768()`. Use
+  `encrypt_string_ml()` and `decrypt_my_message_ml()`. No aliases are retained.
+
+### Fixed
+
+- The auth-token session snapshot now records the wallet's ML-KEM parameter set
+  (`wallet.mlKemParameterSet`), and `AuthToken.restore()` honours it. A session persisted by an
+  0.9.x build restores as ML-KEM-768 instead of silently becoming ML-KEM-1024 with a public key
+  the validator never recorded for that token. Resolution is three-tiered: an explicit snapshot
+  field, then the stored validator key's length, then ML-KEM-768 — never the constructor default,
+  which is what produced the defect.
+- Both `KnishIOClient` entry points now route `mlkem_param_set` through the validating setter.
+  `__init__` and `initialize()` previously assigned it raw, so `mlkem_param_set=512` was silently
+  accepted and only failed later, inside the ML-KEM bridge, while
+  `set_mlkem_parameter_set(512)` had always rejected it.
+
+### Notes
+
+- `0.9.5`–`0.9.9` were never published. The ML-KEM-1024 cutover is a breaking API change, so it
+  takes the 1.0.0 line.
+- A frozen pre-bump ML-KEM-768 auth molecule (`vectors.legacyMlkem768AuthMolecule` in
+  `cross-platform-test-vectors.json`) is validated by this SDK from a 1024-default build —
+  molecular hash and WOTS+ signature via `Molecule.from_json()` + `check()` — so the
+  compatibility claim rests on a signed artifact rather than on parameter-set-independent hashing.
+
 ## [0.9.4] — 2026-08-05
 
 ### Security
@@ -198,7 +253,8 @@ published) fixed policy ContinuID signing (F-3) by signing the R-atom from the
 established source wallet. See the git tag history and the
 [PyPI release list](https://pypi.org/project/knishioclient/#history).
 
-[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/0.9.2.post1...HEAD
+[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.0.0...HEAD
+[1.0.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.0.0
 [0.9.2.post1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/0.9.2.post1
 [0.9.2]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/0.9.2
 [0.9.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/0.9.0

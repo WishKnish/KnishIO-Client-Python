@@ -3,7 +3,7 @@
 NobleMLKEMBridge - Python bridge to @noble/post-quantum via Node.js subprocess
 
 This module provides a bridge between Python and the JavaScript @noble/post-quantum
-library, ensuring 100% compatibility with the JavaScript SDK's ML-KEM-768 implementation.
+library, ensuring 100% compatibility with the JavaScript SDK's ML-KEM implementation.
 
 This is a proven pattern also used by the PHP SDK to guarantee cross-SDK compatibility.
 """
@@ -50,7 +50,7 @@ class NobleMLKEMBridge:
 
         if cls._node_command is None:
             raise RuntimeError(
-                'Node.js not found. Please install Node.js to use ML-KEM-768 cryptography. '
+                'Node.js not found. Please install Node.js to use ML-KEM cryptography. '
                 'Visit https://nodejs.org/ for installation instructions.'
             )
 

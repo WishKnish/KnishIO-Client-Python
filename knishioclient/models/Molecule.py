@@ -1187,7 +1187,7 @@ class Molecule(MoleculeStructure):
                 {
                     "pubkey": self.sourceWallet.pubkey,
                     "characters": self.sourceWallet.characters,
-                    # PQ-transport Phase E: convey the AUTH source wallet's ML-KEM768 public key as a
+                    # PQ-transport Phase E: convey the AUTH source wallet's ML-KEM public key as a
                     # SIGNED walletPubkey meta (this U-atom is signed → MITM-proof), so the validator's
                     # extract_enc_pubkey can encrypt CipherHash responses back to THIS wallet.
                     "walletPubkey": self.sourceWallet.pubkey,

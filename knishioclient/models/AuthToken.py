@@ -56,6 +56,29 @@ class AuthToken:
         return auth_token
     
     @classmethod
+    def resolve_mlkem_param_set(cls, snapshot: Dict[str, Any]) -> int:
+        """
+        ML-KEM parameter set a restored session must use, resolved in three tiers: an explicit
+        snapshot field, then the stored validator key's length, then ML-KEM-768.
+
+        The final tier is deliberately NOT the constructor default. A snapshot with neither an
+        explicit field nor a recognisable key can only have come from a pre-bump build, and every
+        pre-bump build was 768-only — defaulting to 1024 would make the restored wallet advertise
+        a public key the validator never recorded for that token, and would break outbound against
+        the stored 1184-byte validator key.
+
+        Args:
+            snapshot: Dictionary containing token state and wallet info
+
+        Returns:
+            1024 or 768
+        """
+        explicit = snapshot.get('wallet', {}).get('mlKemParameterSet')
+        if explicit:
+            return int(explicit)
+        return Wallet.mlkem_param_set_from_pubkey(snapshot.get('pubkey')) or 768
+
+    @classmethod
     def restore(cls, snapshot: Dict[str, Any], secret: str) -> 'AuthToken':
         """
         Restore an AuthToken from a snapshot.
@@ -71,7 +94,8 @@ class AuthToken:
             secret=secret,
             token='AUTH',
             position=snapshot['wallet'].get('position'),
-            characters=snapshot['wallet'].get('characters')
+            characters=snapshot['wallet'].get('characters'),
+            mlkem_param_set=cls.resolve_mlkem_param_set(snapshot)
         )
         
         return cls.create({
@@ -116,7 +140,8 @@ class AuthToken:
         if self.__wallet:
             snapshot['wallet'] = {
                 'position': self.__wallet.position,
-                'characters': self.__wallet.characters
+                'characters': self.__wallet.characters,
+                'mlKemParameterSet': self.__wallet.mlkem_param_set
             }
         
         return snapshot

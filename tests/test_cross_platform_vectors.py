@@ -14,6 +14,7 @@ Vector source: tests/fixtures/cross-platform-test-vectors.json (vendored copy of
 monorepo master, so this runs in a standalone checkout).
 """
 
+import base64
 import json
 import sys
 import unittest
@@ -25,6 +26,9 @@ if SDK_ROOT not in sys.path:
     sys.path.insert(0, SDK_ROOT)
 
 from knishioclient.libraries import crypto
+from knishioclient.models.Atom import Atom
+from knishioclient.models.AuthToken import AuthToken
+from knishioclient.models.Molecule import Molecule
 from knishioclient.models.Wallet import Wallet
 
 
@@ -183,6 +187,134 @@ class NaClVectorTest(unittest.TestCase):
             bytes.fromhex(v["recipientSecretKeyHex"]),
         )
         self.assertEqual(v["expectedPlaintext"], pt.decode(), "sealed-box open mismatch")
+
+
+class Mlkem768StepBackTest(unittest.TestCase):
+    """A wallet at the shipped default (ML-KEM-1024) must still READ records addressed to its
+    own ML-KEM-768 identity. The 64-byte ML-KEM seed is parameter-set-independent, so the 768
+    identity is derived on demand from material the wallet already holds. Inbound is permissive;
+    outbound encapsulation stays strict (see test_mlkem1024_encrypt_rejects_non_1568_key)."""
+
+    def setUp(self):
+        self.v = VECTORS["mlkem768"]["decrypt"]
+        # No mlkem_param_set → the shipped default, ML-KEM-1024.
+        self.wallet = Wallet(
+            secret=self.v["secret"], token=self.v["token"], position=self.v["position"]
+        )
+
+    def test_default_wallet_decrypts_frozen_768_envelope(self):
+        plaintext = self.wallet.decrypt_message(
+            {"cipherText": self.v["cipherText"], "encryptedMessage": self.v["encryptedMessage"]}
+        )
+        self.assertEqual(
+            self.v["expectedPlaintext"], plaintext,
+            "ML-KEM-1024 default wallet failed to read its own ML-KEM-768 record",
+        )
+
+    def test_default_wallet_still_advertises_1024_pubkey(self):
+        # Dual-identity decryption must not move the advertised key: it goes into signed
+        # molecule meta and into auth, so changing it would change hashed bytes.
+        self.assertEqual(1568, len(base64.b64decode(self.wallet.pubkey)))
+
+    def test_ciphertext_matching_neither_parameter_set_still_fails(self):
+        self.assertIsNone(
+            self.wallet.decrypt_message({
+                "cipherText": Wallet.serialize_key(bytes(64)),
+                "encryptedMessage": self.v["encryptedMessage"],
+            })
+        )
+
+    def test_map_addressed_768_envelope_is_found(self):
+        # A pre-bump sender addressed the CipherHash envelope to hash_share(our 768 pubkey);
+        # a 1024 wallet must still find it, or the length dispatch above is unreachable.
+        legacy = Wallet(
+            secret=self.v["secret"], token=self.v["token"], position=self.v["position"],
+            mlkem_param_set=768,
+        )
+        mapping = {
+            self.wallet.hash_share(legacy.pubkey): {
+                "cipherText": self.v["cipherText"],
+                "encryptedMessage": self.v["encryptedMessage"],
+            }
+        }
+        self.assertEqual(self.v["expectedPlaintext"], self.wallet.decrypt_my_message_ml(mapping))
+
+
+class AuthTokenSnapshotParameterSetTest(unittest.TestCase):
+    """A restored session must keep the parameter set it was persisted with. Falling back to
+    the constructor default (now 1024) makes a pre-bump session advertise a public key the
+    validator never recorded for that token, and breaks outbound against the stored 1184-byte
+    validator key."""
+
+    def setUp(self):
+        keygen = VECTORS["mlkem768"]["keygen"]
+        self.secret = keygen["secret"]
+        self.position = keygen["position"]
+        # A 1184-byte-decoding key, i.e. what a pre-bump validator stored for the session.
+        self.validator_pubkey_768 = keygen["expectedPubkey"]
+        self.wallet_768 = Wallet(
+            secret=self.secret, token="AUTH", position=self.position, mlkem_param_set=768
+        )
+
+    def test_explicit_768_session_round_trips(self):
+        auth = AuthToken.create({
+            "token": "jwt-768",
+            "expiresAt": 1700000000,
+            "pubkey": self.validator_pubkey_768,
+            "encrypt": True,
+        }, self.wallet_768)
+        snapshot = auth.get_snapshot()
+        self.assertEqual(768, snapshot["wallet"]["mlKemParameterSet"])
+
+        restored = AuthToken.restore(snapshot, self.secret)
+        self.assertEqual(self.wallet_768.pubkey, restored.get_wallet().pubkey)
+
+    def test_legacy_snapshot_without_parameter_set_restores_as_768(self):
+        # The literal shape an 0.9.x build persisted: no parameter-set field at all.
+        legacy_snapshot = {
+            "token": "jwt-legacy",
+            "expiresAt": 1700000000,
+            "pubkey": self.validator_pubkey_768,
+            "encrypt": True,
+            "wallet": {"position": self.position, "characters": "BASE64"},
+        }
+        restored_wallet = AuthToken.restore(legacy_snapshot, self.secret).get_wallet()
+
+        self.assertEqual(self.wallet_768.pubkey, restored_wallet.pubkey)
+        decoded = len(base64.b64decode(restored_wallet.pubkey))
+        self.assertEqual(1184, decoded)
+        self.assertNotEqual(1568, decoded)
+
+
+class LegacyMlkem768AuthMoleculeTest(unittest.TestCase):
+    """A signed U+I auth molecule whose U-atom walletPubkey meta is an ML-KEM-768 key — the
+    shape a pre-bump 0.9.x client produced. A build defaulting to ML-KEM-1024 must still
+    validate it, hash and WOTS+ signature alike."""
+
+    def setUp(self):
+        self.v = VECTORS["legacyMlkem768AuthMolecule"]
+
+    def test_wallet_pubkey_meta_really_is_768(self):
+        # Fails loudly if the fixture is ever regenerated at ML-KEM-1024.
+        u_atom = next(a for a in self.v["molecule"]["atoms"] if a["isotope"] == "U")
+        pubkey = next(m["value"] for m in u_atom["meta"] if m["key"] == "walletPubkey")
+        self.assertEqual(
+            self.v["expectedWalletPubkeyBytes"], len(base64.b64decode(pubkey)),
+            "frozen molecule no longer carries an ML-KEM-768 walletPubkey",
+        )
+
+    def test_molecular_hash(self):
+        atoms = [Atom.from_json(atom_data) for atom_data in self.v["atoms"]]
+        self.assertEqual(
+            self.v["expectedMolecularHash"], Atom.hash_atoms(atoms),
+            "molecular hash of the frozen pre-bump 768 molecule does not reproduce",
+        )
+
+    def test_full_check(self):
+        molecule = Molecule.from_json(
+            self.v["molecule"], include_validation_context=True, validate_structure=True
+        )
+        self.assertTrue(molecule.check(molecule.sourceWallet))
 
 
 if __name__ == "__main__":

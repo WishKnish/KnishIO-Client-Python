@@ -26,7 +26,7 @@ class ResponseRequestAuthorization(ResponseProposeMolecule):
         return None
 
     def pub_key(self):
-        """The validator's advertised ML-KEM768 public key from the auth payload (PQ-transport
+        """The validator's advertised ML-KEM public key from the auth payload (PQ-transport
         Phase E). Mirrors the guest response's pub_key() — the field is named ``key``."""
         data = self.data()
         if data is None or 'payload' not in data:

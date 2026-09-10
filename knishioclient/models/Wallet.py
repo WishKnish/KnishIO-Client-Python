@@ -15,6 +15,12 @@ from .TokenUnit import TokenUnit
 class Wallet(object):
     """class Wallet"""
 
+    # FIPS 203 raw byte lengths. The public-key and ciphertext lengths are disjoint across
+    # parameter sets, which is what lets a stored key or a received ciphertext identify the
+    # parameter set it belongs to without any wire-format change.
+    PUBKEY_BYTES = {1024: 1568, 768: 1184}
+    CIPHERTEXT_BYTES = {1024: 1568, 768: 1088}
+
     def __init__(self,
                  secret: str = None,
                  bundle: str | bytes = None,
@@ -52,11 +58,59 @@ class Wallet(object):
             self.address = self.address or Wallet.generate_address(self.key)
             self.initialize_mlkem()
 
+    def _derive_mlkem_keypair(self, param_set: int) -> tuple[bytes, bytes] | None:
+        """Derive an ML-KEM keypair at an arbitrary parameter set from this wallet's key seed,
+        WITHOUT mutating the wallet.
+
+        The 64-byte ``d‖z`` seed is derived from ``self.key`` alone and takes no parameter-set
+        input — only the final keygen differs — so every KnishIO wallet can deterministically
+        derive both its ML-KEM-768 and its ML-KEM-1024 identity from material it already holds.
+
+        Returns ``None`` when the wallet holds no key — a secret-less wallet, which is what a
+        molecule deserializer builds for validation context. The guard lives here rather than at
+        each call site so a new caller cannot miss it.
+
+        :param param_set: 1024 or 768
+        :return: (public_key, secret_key) as bytes, or None when no key is available
+        """
+        param_num = int(param_set)
+        if param_num not in (1024, 768):
+            raise ValueError(f'KnishIO: unsupported ML-KEM parameter set {param_set}; expected 1024 or 768.')
+        if not self.key:
+            return None
+        return crypto.keypair_from_seed(self.key, param_num)
+
+    def other_mlkem_param_set(self) -> int:
+        """The parameter set this wallet is NOT configured at."""
+        return 768 if self.mlkem_param_set == 1024 else 1024
+
+    @classmethod
+    def mlkem_param_set_from_pubkey(cls, pubkey: str | None) -> int | None:
+        """ML-KEM parameter set implied by a serialized public key's raw byte length, or None
+        when the length matches neither set. Used by :meth:`AuthToken.restore` to resolve a
+        session snapshot that predates the persisted parameter-set field."""
+        if not pubkey:
+            return None
+        try:
+            byte_length = len(base64.b64decode(pubkey))
+        except Exception:
+            return None
+        for param_set, pk_bytes in cls.PUBKEY_BYTES.items():
+            if pk_bytes == byte_length:
+                return param_set
+        return None
+
     def initialize_mlkem(self, param_set: int = None):
-        """Initialize ML-KEM keys for quantum resistance (matches JavaScript patterns)"""
+        """Initialize ML-KEM keys for quantum resistance (matches JavaScript patterns).
+
+        Only ever reached from the constructor's ``secret`` branch, so the derivation cannot
+        come back empty here."""
         if param_set is not None:
             self.mlkem_param_set = int(param_set)
-        public_key, secret_key = crypto.keypair_from_seed(self.key, self.mlkem_param_set)
+        derived = self._derive_mlkem_keypair(self.mlkem_param_set)
+        if derived is None:
+            return
+        public_key, secret_key = derived
         self.pubkey = Wallet.serialize_key(public_key)
         self.privkey = list(secret_key)
 
@@ -234,7 +288,7 @@ class Wallet(object):
         message_bytes = message_string.encode('utf-8')
         deserialized_pubkey = Wallet.deserialize_key(recipient_pubkey)
 
-        expected_pk_bytes = 1568 if self.mlkem_param_set == 1024 else 1184
+        expected_pk_bytes = Wallet.PUBKEY_BYTES[self.mlkem_param_set]
         if len(deserialized_pubkey) != expected_pk_bytes:
             raise ValueError(
                 f'KnishIO: cannot ML-KEM-encrypt — recipient public key is {len(deserialized_pubkey)} bytes, '
@@ -264,12 +318,33 @@ class Wallet(object):
             Wallet.deserialize_key(encrypted_data["cipherText"]),
             Wallet.deserialize_key(encrypted_data["encryptedMessage"])
         )
-        expected_ct_bytes = 1568 if self.mlkem_param_set == 1024 else 1088
-        if len(cipher_text) != expected_ct_bytes:
-            return None
+
+        # Inbound is PERMISSIVE: a ciphertext at either parameter set decrypts, provided it is
+        # addressed to one of THIS wallet's own ML-KEM identities. The 64-byte seed is parameter-
+        # set-independent, so the other identity is derived on demand and its private key is
+        # released with this call — never cached on the wallet. Outbound encapsulation stays
+        # STRICT (see :meth:`encrypt_message`): reading a 768 record we own downgrades nothing,
+        # because that message's confidentiality was fixed at 768 by the sender, but
+        # encapsulating at 768 to a stale peer would be a real downgrade.
+        if len(cipher_text) == Wallet.CIPHERTEXT_BYTES[self.mlkem_param_set]:
+            # Converted lazily: a secret-less wallet has ``privkey is None``, and an eager
+            # ``bytes(None)`` raises before the length checks below can return None.
+            if self.privkey is None:
+                return None
+            privkey = bytes(self.privkey)
+        else:
+            other_set = self.other_mlkem_param_set()
+            if len(cipher_text) != Wallet.CIPHERTEXT_BYTES[other_set]:
+                return None
+            # ``None`` here means the wallet holds no key to derive from (a secret-less
+            # validation wallet); preserve the documented ``None`` observable.
+            derived = self._derive_mlkem_keypair(other_set)
+            if derived is None:
+                return None
+            privkey = derived[1]
 
         # Use @noble/post-quantum via Node.js bridge for 100% cross-SDK compatibility
-        shared_secret = crypto.noble_bridge_decaps(cipher_text, bytes(self.privkey))
+        shared_secret = crypto.noble_bridge_decaps(cipher_text, privkey)
 
         decrypted = Wallet.decrypt_with_shared_secret(encrypted_message, shared_secret)
         return loads(decrypted.decode('utf-8'))
@@ -292,6 +367,15 @@ class Wallet(object):
         (``hash_share(self.pubkey)``) → the parsed inner GraphQL response. ``None`` if no entry.
         Mirrors the JS/PHP ``decryptMyMessageML``. PQ-transport Phase E."""
         envelope = mapping.get(self.hash_share(self.pubkey))
+        if envelope is None:
+            # Inbound permissive: a pre-bump sender addressed the envelope to the hash share of
+            # our OTHER identity's public key, so a wallet at 1024 would never find its entry and
+            # would return before any decryption was attempted. Derive that identity's public key
+            # on demand and try its share too. A secret-less wallet derives nothing, so the
+            # lookup is simply skipped.
+            derived = self._derive_mlkem_keypair(self.other_mlkem_param_set())
+            if derived is not None:
+                envelope = mapping.get(self.hash_share(Wallet.serialize_key(derived[0])))
         if envelope is None:
             return None
         return self.decrypt_message(envelope)

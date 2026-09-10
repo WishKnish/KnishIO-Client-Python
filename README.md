@@ -17,7 +17,7 @@ pip install knishioclient
 
 **Requirements:**
 - Python 3.11 or higher
-- Node.js 16 or higher (required for ML-KEM768 quantum-resistant cryptography)
+- Node.js 16 or higher (required for ML-KEM quantum-resistant cryptography)
 - Virtual environment (recommended)
 - Required packages: numpy, cryptography, libnacl, base58, aiohttp
 
@@ -34,7 +34,7 @@ pip install knishioclient
 # Or install runtime + dev/test tooling for development
 pip install -r requirements.txt -r requirements-dev.txt
 
-# Install Node.js dependencies for ML-KEM768 bridge
+# Install Node.js dependencies for the ML-KEM bridge
 cd bin
 npm install
 cd ..

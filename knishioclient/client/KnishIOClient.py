@@ -72,7 +72,7 @@ class KnishIOClient(object):
         self.__server_key = None
         self.__logging = False
         self.__server_sdk_version = 3
-        self.__mlkem_param_set = int(mlkem_param_set)
+        self.__mlkem_param_set = 1024
 
         self.initialize(url, client, server_sdk_version, logging, mlkem_param_set)
 
@@ -81,7 +81,10 @@ class KnishIOClient(object):
         self.__logging = logging
         self.__client = client or HttpClient(url)
         self.__server_sdk_version = server_sdk_version
-        self.__mlkem_param_set = int(mlkem_param_set)
+        # Route through the validating setter: assigning int(mlkem_param_set) raw silently
+        # accepted values FIPS 203 does not define (e.g. 512), which then failed far away in
+        # the ML-KEM bridge with a cryptic error instead of at the entry point.
+        self.set_mlkem_parameter_set(mlkem_param_set)
 
     def deinitialize(self):
         self.reset()

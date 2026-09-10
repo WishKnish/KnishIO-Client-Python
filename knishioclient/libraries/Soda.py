@@ -12,7 +12,7 @@ class Soda(object):
     """Classical NaCl public-key crypto utility (libsodium ``crypto_box_seal`` / ``crypto_box_seal_open``).
 
     This is the **classical, non-post-quantum** encryption lineage — a general-purpose sealed-box
-    utility, NOT the canonical cross-SDK message envelope. The canonical **post-quantum ML-KEM768**
+    utility, NOT the canonical cross-SDK message envelope. The canonical **post-quantum ML-KEM**
     envelope (``{cipherText, encryptedMessage}`` — the form the cross-platform vectors assert) is
     ``Wallet.encrypt_message`` / ``Wallet.decrypt_message`` (see ``knishioclient/models/Wallet.py``).
     """
@@ -24,7 +24,7 @@ class Soda(object):
 
     def encrypt(self, message, key):
         """Classical NaCl ``crypto_box_seal`` encryption (non-PQ). For the canonical
-        post-quantum ML-KEM768 envelope, use ``Wallet.encrypt_message``."""
+        post-quantum ML-KEM envelope, use ``Wallet.encrypt_message``."""
         return self.encode(
             crypto_box_seal(
                 strings.encode(dumps(message)),
@@ -34,7 +34,7 @@ class Soda(object):
 
     def decrypt(self, decrypted, private_key, public_key):
         """Classical NaCl ``crypto_box_seal_open`` decryption (non-PQ). For the canonical
-        post-quantum ML-KEM768 envelope, use ``Wallet.decrypt_message``."""
+        post-quantum ML-KEM envelope, use ``Wallet.decrypt_message``."""
         try:
             decrypt = crypto_box_seal_open(
                 self.decode(decrypted),
