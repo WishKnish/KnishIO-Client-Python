@@ -1005,7 +1005,8 @@ def test_mlkem768(config: Dict) -> bool:
             secret=secret,
             bundle=bundle,
             token=test_config['token'],
-            position=test_config['position']
+            position=test_config['position'],
+            mlkem_param_set=768
         )
 
         log_test('Encryption wallet creation', True)
@@ -1016,7 +1017,8 @@ def test_mlkem768(config: Dict) -> bool:
             secret=secret,
             bundle=bundle,
             token=test_config['token'],
-            position=test_config['position']
+            position=test_config['position'],
+            mlkem_param_set=768
         )
 
         keys_identical = encryption_wallet.pubkey == identical_wallet.pubkey
@@ -1303,7 +1305,8 @@ def test_cross_sdk_validation() -> bool:
                             secret=secret,
                             bundle=bundle,
                             token=test_config['token'],
-                            position=test_config['position']
+                            position=test_config['position'],
+                            mlkem_param_set=768
                         )
 
                         mlkem_valid = False

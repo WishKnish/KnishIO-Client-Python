@@ -26,7 +26,8 @@ class Molecule(MoleculeStructure):
             source_wallet: Wallet = None,
             remainder_wallet: Wallet = None,
             cell_slug: str = None,
-            continu_id_position: str = None
+            continu_id_position: str = None,
+            mlkem_param_set: int = None
     ) -> None:
         """
         :param secret:
@@ -42,13 +43,15 @@ class Molecule(MoleculeStructure):
         self.sourceWallet: Wallet | None = source_wallet
         self.continuIdPosition: str | None = continu_id_position
 
+        self.mlkem_param_set = mlkem_param_set or (source_wallet.mlkem_param_set if source_wallet and hasattr(source_wallet, 'mlkem_param_set') else 1024)
         if remainder_wallet or source_wallet:
             self.remainderWallet = remainder_wallet if remainder_wallet is not None else Wallet.create(
                 secret=secret,
                 bundle=bundle,
                 token=source_wallet.token,
                 batch_id=source_wallet.batchId,
-                characters=source_wallet.characters
+                characters=source_wallet.characters,
+                mlkem_param_set=self.mlkem_param_set
             )
 
     @property
@@ -312,7 +315,8 @@ class Molecule(MoleculeStructure):
                         token=sw_data.get('token', 'USER'),
                         position=sw_data.get('position'),
                         batch_id=sw_data.get('batchId'),
-                        characters=sw_data.get('characters', 'BASE64')
+                        characters=sw_data.get('characters', 'BASE64'),
+                        mlkem_param_set=molecule.mlkem_param_set
                     )
 
                     # Set additional properties for validation context
@@ -333,7 +337,8 @@ class Molecule(MoleculeStructure):
                         token=rw_data.get('token', 'USER'),
                         position=rw_data.get('position'),
                         batch_id=rw_data.get('batchId'),
-                        characters=rw_data.get('characters', 'BASE64')
+                        characters=rw_data.get('characters', 'BASE64'),
+                        mlkem_param_set=molecule.mlkem_param_set
                     )
 
                     # Set additional properties for validation context
@@ -457,7 +462,8 @@ class Molecule(MoleculeStructure):
         # + the sibling init_value (3 V-atoms, no pubkey/characters meta).
         burn_wallet = Wallet(
             bundle='0000000000000000000000000000000000000000000000000000000000000000',
-            token=self.sourceWallet.token
+            token=self.sourceWallet.token,
+            mlkem_param_set=self.mlkem_param_set
         )
 
         # V-atom 1: debit the ENTIRE source balance (UTXO model). Must be -balance (not -value):
@@ -1022,7 +1028,8 @@ class Molecule(MoleculeStructure):
         buffer_wallet = Wallet.create(
             secret=self.secret(),
             token=self.sourceWallet.token,
-            batch_id=self.sourceWallet.batchId
+            batch_id=self.sourceWallet.batchId,
+            mlkem_param_set=self.mlkem_param_set
         )
         if trade_rates:
             buffer_wallet.tradeRates = trade_rates

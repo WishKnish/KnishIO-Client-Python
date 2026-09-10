@@ -33,6 +33,9 @@ class CipherHashLiveTest(unittest.TestCase):
         # (A fresh second auth would rotate the USER remainder via ContinuID → a different address/
         # position/pubkey: correct protocol behaviour, NOT a transport bug.)
         client = KnishIOClient(url)
+        param = os.environ.get('CIPHERHASH_MLKEM_PARAMETER_SET')
+        if param:
+            client.set_mlkem_parameter_set(int(param))
         client.set_cell_slug('public')   # the active dev cell (TESTCELL is inactive there)
         client.request_auth_token(secret, 'public', encrypt=True)
 

@@ -41,7 +41,7 @@ class ClientConfig:
     socket: Optional[SocketConfig] = None
     server_sdk_version: int = 3
     logging: bool = False
-    
+    mlkem_param_set: int = 1024
     def validate(self) -> ValidationResult[ClientConfig]:
         """Validate configuration with enhanced error messages"""
         errors = []

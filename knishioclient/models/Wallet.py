@@ -22,11 +22,15 @@ class Wallet(object):
                  address: str | bytes = None,
                  position: str = None,
                  batch_id: str = None,
-                 characters: str = None) -> None:
+                 characters: str = None,
+                 mlkem_param_set: int = 1024) -> None:
 
         self.token: str = token
         self.balance: int | float = 0
         self.molecules: List = []
+        self.mlkem_param_set: int = int(mlkem_param_set)
+        if self.mlkem_param_set not in (1024, 768):
+            raise ValueError(f'KnishIO: unsupported ML-KEM parameter set {mlkem_param_set}; expected 1024 or 768.')
 
         # Empty values
         self.key: str | bytes | None = None
@@ -48,9 +52,11 @@ class Wallet(object):
             self.address = self.address or Wallet.generate_address(self.key)
             self.initialize_mlkem()
 
-    def initialize_mlkem(self):
-        """Initialize ML-KEM768 keys for quantum resistance (matches JavaScript patterns)"""
-        public_key, secret_key = crypto.keypair_from_seed(self.key)
+    def initialize_mlkem(self, param_set: int = None):
+        """Initialize ML-KEM keys for quantum resistance (matches JavaScript patterns)"""
+        if param_set is not None:
+            self.mlkem_param_set = int(param_set)
+        public_key, secret_key = crypto.keypair_from_seed(self.key, self.mlkem_param_set)
         self.pubkey = Wallet.serialize_key(public_key)
         self.privkey = list(secret_key)
 
@@ -110,7 +116,7 @@ class Wallet(object):
 
     @classmethod
     def create(cls, secret: str = None, bundle: str = None, token: str = 'USER', batch_id: str = None,
-               characters: str = None):
+               characters: str = None, mlkem_param_set: int = 1024):
         if not secret and not bundle:
             raise WalletCredentialException()
 
@@ -126,7 +132,8 @@ class Wallet(object):
             token=token,
             position=position,
             batch_id=batch_id,
-            characters=characters
+            characters=characters,
+            mlkem_param_set=mlkem_param_set
         )
 
     def create_remainder(self, secret: str):
@@ -227,15 +234,12 @@ class Wallet(object):
         message_bytes = message_string.encode('utf-8')
         deserialized_pubkey = Wallet.deserialize_key(recipient_pubkey)
 
-        # ML-KEM-768 public keys are exactly 1184 bytes. A wrong-length key here almost always means the
-        # node did not advertise an ML-KEM public key in its auth `key` field (e.g. a validator predating
-        # the PQ-transport build). Fail with an actionable message rather than a cryptic bridge error.
-        ML_KEM_768_PUBLIC_KEY_BYTES = 1184
-        if len(deserialized_pubkey) != ML_KEM_768_PUBLIC_KEY_BYTES:
+        expected_pk_bytes = 1568 if self.mlkem_param_set == 1024 else 1184
+        if len(deserialized_pubkey) != expected_pk_bytes:
             raise ValueError(
                 f'KnishIO: cannot ML-KEM-encrypt — recipient public key is {len(deserialized_pubkey)} bytes, '
-                f'expected {ML_KEM_768_PUBLIC_KEY_BYTES} (ML-KEM-768). The node likely did not advertise an ML-KEM '
-                'public key (upgrade the validator to a PQ-transport build), or authenticate with encrypt=False.'
+                f'expected {expected_pk_bytes} (ML-KEM-{self.mlkem_param_set}). The peer is not running ML-KEM-{self.mlkem_param_set}; '
+                'upgrade the peer, or step this client back to the other parameter set.'
             )
 
         # Use @noble/post-quantum via Node.js bridge for 100% cross-SDK compatibility
@@ -260,6 +264,9 @@ class Wallet(object):
             Wallet.deserialize_key(encrypted_data["cipherText"]),
             Wallet.deserialize_key(encrypted_data["encryptedMessage"])
         )
+        expected_ct_bytes = 1568 if self.mlkem_param_set == 1024 else 1088
+        if len(cipher_text) != expected_ct_bytes:
+            return None
 
         # Use @noble/post-quantum via Node.js bridge for 100% cross-SDK compatibility
         shared_secret = crypto.noble_bridge_decaps(cipher_text, bytes(self.privkey))
@@ -274,16 +281,16 @@ class Wallet(object):
         conversion, not RFC-4648) and so do NOT interoperate with the validator. PQ-transport Phase E."""
         return Wallet.serialize_key(shake(pubkey.encode('utf-8')).digest(8))
 
-    def encrypt_string_ml768(self, message: Any, recipient_pubkey: str) -> str:
-        """Post-quantum (ML-KEM768) CipherHash request envelope: a stringified single-recipient map
+    def encrypt_string_ml(self, message: Any, recipient_pubkey: str) -> str:
+        """Post-quantum CipherHash request envelope: a stringified single-recipient map
         ``{ "<hash_share(recipient_pubkey)>": {cipherText, encryptedMessage} }`` (object-valued, via
         :meth:`encrypt_message`). Matches the Rust validator's CipherHash handler. PQ-transport Phase E."""
         return dumps({self.hash_share(recipient_pubkey): self.encrypt_message(message, recipient_pubkey)})
 
-    def decrypt_my_message_ml768(self, mapping: Dict[str, Dict[str, str]]) -> Any:
+    def decrypt_my_message_ml(self, mapping: Dict[str, Dict[str, str]]) -> Any:
         """Decrypt a CipherHash response map addressed to THIS wallet's ML-KEM pubkey
         (``hash_share(self.pubkey)``) → the parsed inner GraphQL response. ``None`` if no entry.
-        Mirrors the JS/PHP ``decryptMyMessageML768``. PQ-transport Phase E."""
+        Mirrors the JS/PHP ``decryptMyMessageML``. PQ-transport Phase E."""
         envelope = mapping.get(self.hash_share(self.pubkey))
         if envelope is None:
             return None

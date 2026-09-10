@@ -130,7 +130,7 @@ class HttpClient(object):
         if encrypted:
             payload = {
                 'query': CIPHER_HASH_QUERY,
-                'variables': {'Hash': self.__wallet.encrypt_string_ml768(request, self.__pubkey)},
+                'variables': {'Hash': self.__wallet.encrypt_string_ml(request, self.__pubkey)},
             }
 
         async with aiohttp.ClientSession(headers=options, json_serialize=Coder().encode) as session:
@@ -148,5 +148,5 @@ class HttpClient(object):
         if not isinstance(hash_value, str):
             # Plaintext (e.g. a validator-side error response) — return unchanged.
             return result
-        decrypted = self.__wallet.decrypt_my_message_ml768(json.loads(hash_value))
+        decrypted = self.__wallet.decrypt_my_message_ml(json.loads(hash_value))
         return decrypted if decrypted is not None else result

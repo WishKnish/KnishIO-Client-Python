@@ -155,15 +155,16 @@ class NobleMLKEMBridge:
         return response
 
     @classmethod
-    def generate_keypair_from_seed(cls, seed_hex: str) -> Tuple[bytes, bytes]:
+    def generate_keypair_from_seed(cls, seed_hex: str, param_set: int | str = 1024) -> Tuple[bytes, bytes]:
         """
-        Generate ML-KEM-768 key pair from seed (deterministic).
+        Generate ML-KEM key pair from seed (deterministic).
 
         Uses JavaScript @noble/post-quantum library to ensure exact compatibility
         with JavaScript SDK implementation.
 
         Args:
             seed_hex: 128 hex characters (64 bytes)
+            param_set: ML-KEM parameter set (1024 or 768)
 
         Returns:
             Tuple of (public_key, secret_key) as bytes
@@ -173,9 +174,9 @@ class NobleMLKEMBridge:
             RuntimeError: If bridge command fails
         """
         if len(seed_hex) != 128:
-            raise ValueError('Seed must be exactly 128 hex characters for ML-KEM-768')
+            raise ValueError('Seed must be exactly 128 hex characters')
 
-        result = cls._execute_command(['keygen', seed_hex])
+        result = cls._execute_command(['keygen', seed_hex, str(param_set)])
 
         if 'publicKey' not in result or 'secretKey' not in result:
             raise RuntimeError('Invalid response from Noble ML-KEM bridge: missing keys')

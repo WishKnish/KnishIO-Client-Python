@@ -61,7 +61,7 @@ class TransferRecipient:
 
 
 class KnishIOClient(object):
-    def __init__(self, url: str, client: HttpClient = None, server_sdk_version=3, logging: bool = False):
+    def __init__(self, url: str, client: HttpClient = None, server_sdk_version=3, logging: bool = False, mlkem_param_set: int = 1024):
         self.__client = None
         self.__cell_slug = None
         self.__secret = None
@@ -72,14 +72,16 @@ class KnishIOClient(object):
         self.__server_key = None
         self.__logging = False
         self.__server_sdk_version = 3
+        self.__mlkem_param_set = int(mlkem_param_set)
 
-        self.initialize(url, client, server_sdk_version, logging)
+        self.initialize(url, client, server_sdk_version, logging, mlkem_param_set)
 
-    def initialize(self, url: str, client: HttpClient = None, server_sdk_version: int = 3, logging: bool = False):
+    def initialize(self, url: str, client: HttpClient = None, server_sdk_version: int = 3, logging: bool = False, mlkem_param_set: int = 1024):
         self.reset()
         self.__logging = logging
         self.__client = client or HttpClient(url)
         self.__server_sdk_version = server_sdk_version
+        self.__mlkem_param_set = int(mlkem_param_set)
 
     def deinitialize(self):
         self.reset()
@@ -88,6 +90,16 @@ class KnishIOClient(object):
         self.__secret = None
         self.__bundle = None
         self.__remainder_wallet: Wallet | None = None
+
+    def get_mlkem_parameter_set(self) -> int:
+        return getattr(self, '_KnishIOClient__mlkem_param_set', 1024)
+
+    def set_mlkem_parameter_set(self, param_set: int):
+        param_num = int(param_set)
+        if param_num not in (1024, 768):
+            raise ValueError(f'KnishIO: unsupported ML-KEM parameter set {param_set}; expected 1024 or 768.')
+        self.__mlkem_param_set = param_num
+        return self
 
     def bundle(self) -> str:
         if self.__bundle is None:
@@ -134,17 +146,18 @@ class KnishIOClient(object):
             source_wallet = self.get_source_wallet()
 
         self.__remainder_wallet = remainder_wallet or Wallet.create(
-            secret, bundle, source_wallet.token, source_wallet.batchId, source_wallet.characters
+            secret, bundle, source_wallet.token, source_wallet.batchId, source_wallet.characters,
+            mlkem_param_set=self.get_mlkem_parameter_set()
         )
         molecule = Molecule(
             secret=secret,
             bundle=bundle,
             source_wallet=source_wallet,
             remainder_wallet=self.get_remainder_wallet(),
-            cell_slug=self.cell_slug()
+            cell_slug=self.cell_slug(),
+            mlkem_param_set=self.get_mlkem_parameter_set()
         )
         return molecule
-
     def create_molecule_mutation(self, mutation_class, molecule: Molecule = None) -> Mutation:
         molecule = molecule or self.create_molecule()
         mutation = mutation_class(self, molecule)
@@ -170,7 +183,7 @@ class KnishIOClient(object):
         source_wallet = self.query_continu_id(self.bundle()).payload()
 
         if source_wallet is None:
-            source_wallet = Wallet(self.secret())
+            source_wallet = Wallet(self.secret(), mlkem_param_set=self.get_mlkem_parameter_set())
 
         return source_wallet
 
@@ -258,7 +271,7 @@ class KnishIOClient(object):
         return query.execute(variables, fields).payload()
 
     def create_wallet(self, token_slug: str):
-        new_wallet = Wallet(self.secret(), token_slug)
+        new_wallet = Wallet(self.secret(), token_slug, mlkem_param_set=self.get_mlkem_parameter_set())
         query = self.create_molecule_mutation(MutationCreateWallet)
         query.fill_molecule(new_wallet)
 
@@ -301,7 +314,7 @@ class KnishIOClient(object):
         # Wallet(secret, bundle, token, …) — token_slug MUST be the `token` kwarg, not the 2nd
         # positional (which is `bundle`). The positional form left token='USER' (the default) +
         # bundle=token_slug, so create_token always tried to create token 'USER' ("already exists").
-        recipient_wallet = Wallet(self.secret(), token=token_slug)
+        recipient_wallet = Wallet(self.secret(), token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set())
 
         # Read the fungibility meta with a plain dict.get: array_get() deliberately returns its
         # default for STRING leaf values (it navigates into nested objects), so it returned None
@@ -338,7 +351,7 @@ class KnishIOClient(object):
                     meta_type = 'walletbundle'
                     meta_id = to
                 else:
-                    to = Wallet.create(to, token_slug)
+                    to = Wallet.create(to, token_slug, mlkem_param_set=self.get_mlkem_parameter_set())
             if isinstance(to, Wallet):
                 meta_type = 'wallet'
                 data_metas.update({
@@ -400,7 +413,7 @@ class KnishIOClient(object):
 
         # Fresh recipient → a shadow wallet keyed by bundle + token (claimable later)
         if to_wallet is None:
-            to_wallet = Wallet.create(bundle=wallet_object_or_bundle_hash, token=token_slug)
+            to_wallet = Wallet.create(bundle=wallet_object_or_bundle_hash, token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set())
 
         # Recipient batch id: explicit (e.g. a claimable shadow for a known batch) or derived from source
         if batch_id is not None:
@@ -454,7 +467,7 @@ class KnishIOClient(object):
         # Build a shadow recipient wallet per destination + assign a distinct batch id
         recipient_wallets = []
         for recipient in recipients:
-            recipient_wallet = Wallet.create(bundle=recipient.bundle_hash, token=token_slug)
+            recipient_wallet = Wallet.create(bundle=recipient.bundle_hash, token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set())
             if recipient.batch_id is not None:
                 recipient_wallet.batchId = recipient.batch_id
             else:
@@ -485,7 +498,7 @@ class KnishIOClient(object):
 
     def extracting_authorization_wallet(self, molecule: Molecule):
         atom = get_signed_atom(molecule)
-        return Wallet(self.secret(), atom.token, atom.position) if atom is not None else None
+        return Wallet(self.secret(), atom.token, atom.position, mlkem_param_set=self.get_mlkem_parameter_set()) if atom is not None else None
     
     def query_batch(self, batch_id: str = None):
         """Query batch information"""
@@ -667,14 +680,15 @@ class KnishIOClient(object):
             source_wallet = self.query_balance(token_slug).data()
             if not source_wallet:
                 # Create new wallet if it doesn't exist
-                source_wallet = Wallet(secret=self.secret(), token=token_slug)
-        
+                source_wallet = Wallet(secret=self.secret(), token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set())
+
         # Create remainder wallet
         remainder_wallet = Wallet(
             secret=self.secret(),
             token=source_wallet.token,
-            batchId=source_wallet.batchId,
-            characters=source_wallet.characters
+            batch_id=source_wallet.batchId,
+            characters=source_wallet.characters,
+            mlkem_param_set=self.get_mlkem_parameter_set()
         )
         
         # Create molecule
@@ -718,7 +732,7 @@ class KnishIOClient(object):
         # Create a temporary wallet for guest
         # In Python, we don't have fingerprinting, so use a random secret
         guest_secret = crypto.generate_secret()
-        wallet = Wallet(secret=guest_secret, token='AUTH')
+        wallet = Wallet(secret=guest_secret, token='AUTH', mlkem_param_set=self.get_mlkem_parameter_set())
         
         # Create the guest auth mutation
         query = self.create_query(MutationRequestAuthorizationGuest)
@@ -748,7 +762,7 @@ class KnishIOClient(object):
         self.set_secret(secret)
         
         # Create wallet for authentication
-        wallet = Wallet(secret=secret, token='AUTH')
+        wallet = Wallet(secret=secret, token='AUTH', mlkem_param_set=self.get_mlkem_parameter_set())
 
         # Create molecule with the AUTH source + an explicit USER remainder (mirror JS createMolecule),
         # so the ContinuID I-atom (init_authorization) is USER-token. Without this, create_molecule
@@ -756,7 +770,7 @@ class KnishIOClient(object):
         molecule = self.create_molecule(
             self.secret(),
             source_wallet=wallet,
-            remainder_wallet=Wallet.create(self.secret(), self.bundle(), 'USER')
+            remainder_wallet=Wallet.create(self.secret(), self.bundle(), 'USER', mlkem_param_set=self.get_mlkem_parameter_set())
         )
         
         # Create auth mutation

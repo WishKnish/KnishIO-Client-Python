@@ -92,15 +92,16 @@ def generate_secret(seed: str | bytes | None = None, length: int = 2048):
     return strings.random_string(length)
 
 
-def keypair_from_seed(seed: str) -> Tuple[bytes, bytes]:
+def keypair_from_seed(seed: str, param_set: int | str = 1024) -> Tuple[bytes, bytes]:
     """
-    Generate ML-KEM768 key pair from seed using @noble/post-quantum bridge.
+    Generate ML-KEM key pair from seed using @noble/post-quantum bridge.
 
     Ensures 100% cross-SDK compatibility by using the same implementation
     as JavaScript, TypeScript, Kotlin, PHP, Rust, C, and C++ SDKs.
 
     Args:
         seed: Seed string for deterministic key generation
+        param_set: ML-KEM parameter set (1024 or 768)
 
     Returns:
         Tuple of (public_key, secret_key) as bytes
@@ -109,7 +110,7 @@ def keypair_from_seed(seed: str) -> Tuple[bytes, bytes]:
     seed_hex = generate_secret(seed, 128)  # 128 hex chars = 64 bytes
 
     # Use Node.js bridge to @noble/post-quantum for guaranteed compatibility
-    public_key, secret_key = NobleMLKEMBridge.generate_keypair_from_seed(seed_hex)
+    public_key, secret_key = NobleMLKEMBridge.generate_keypair_from_seed(seed_hex, param_set)
     return public_key, secret_key
 
 

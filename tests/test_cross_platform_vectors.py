@@ -99,14 +99,14 @@ class Mlkem768VectorTest(unittest.TestCase):
     # Keygen-from-seed is deterministic (FIPS-203) → byte-frozen pubkey, like a SHAKE vector.
     def test_mlkem768_keygen(self):
         v = VECTORS["mlkem768"]["keygen"]
-        wallet = Wallet(secret=v["secret"], token=v["token"], position=v["position"])
+        wallet = Wallet(secret=v["secret"], token=v["token"], position=v["position"], mlkem_param_set=768)
         self.assertEqual(v["expectedPubkey"], wallet.pubkey, "ML-KEM768 keygen pubkey mismatch")
 
     # Encapsulation is non-deterministic, but decapsulation + AES-256-GCM decrypt is deterministic →
     # one frozen {cipherText, encryptedMessage} sample must decrypt to the canonical plaintext.
     def test_mlkem768_decrypt(self):
         v = VECTORS["mlkem768"]["decrypt"]
-        wallet = Wallet(secret=v["secret"], token=v["token"], position=v["position"])
+        wallet = Wallet(secret=v["secret"], token=v["token"], position=v["position"], mlkem_param_set=768)
         plaintext = wallet.decrypt_message(
             {"cipherText": v["cipherText"], "encryptedMessage": v["encryptedMessage"]}
         )
@@ -116,12 +116,34 @@ class Mlkem768VectorTest(unittest.TestCase):
     # must fail with an actionable error, not a cryptic bridge crash.
     def test_mlkem768_encrypt_rejects_non_1184_key(self):
         v = VECTORS["mlkem768"]["keygen"]
-        wallet = Wallet(secret=v["secret"], token=v["token"], position=v["position"])
+        wallet = Wallet(secret=v["secret"], token=v["token"], position=v["position"], mlkem_param_set=768)
         short_key = Wallet.serialize_key(bytes(48))
         with self.assertRaises(ValueError) as ctx:
             wallet.encrypt_message({"q": 1}, short_key)
         self.assertIn("expected 1184 (ML-KEM-768)", str(ctx.exception))
 
+
+class Mlkem1024VectorTest(unittest.TestCase):
+    def test_mlkem1024_keygen(self):
+        v = VECTORS["mlkem1024"]["keygen"]
+        wallet = Wallet(secret=v["secret"], token=v["token"], position=v["position"])
+        self.assertEqual(v["expectedPubkey"], wallet.pubkey, "ML-KEM1024 keygen pubkey mismatch")
+
+    def test_mlkem1024_decrypt(self):
+        v = VECTORS["mlkem1024"]["decrypt"]
+        wallet = Wallet(secret=v["secret"], token=v["token"], position=v["position"])
+        plaintext = wallet.decrypt_message(
+            {"cipherText": v["cipherText"], "encryptedMessage": v["encryptedMessage"]}
+        )
+        self.assertEqual(v["expectedPlaintext"], plaintext, "ML-KEM1024 decrypt plaintext mismatch")
+
+    def test_mlkem1024_encrypt_rejects_non_1568_key(self):
+        v = VECTORS["mlkem1024"]["keygen"]
+        wallet = Wallet(secret=v["secret"], token=v["token"], position=v["position"])
+        short_key = Wallet.serialize_key(bytes(48))
+        with self.assertRaises(ValueError) as ctx:
+            wallet.encrypt_message({"q": 1}, short_key)
+        self.assertIn("expected 1568 (ML-KEM-1024)", str(ctx.exception))
 
 class NaClVectorTest(unittest.TestCase):
     """Classical NaCl (X25519 scalarmult_base + crypto_box/secretbox + sealed-box),
