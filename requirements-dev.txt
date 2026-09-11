@@ -9,6 +9,6 @@
 -r requirements.txt
 
 pytest>=9.1.1        # test runner (pytest.ini → testpaths=tests)
-ruff>=0.16.5          # lint gate (config in pyproject.toml [tool.ruff.lint])
+ruff>=0.16.6          # lint gate (config in pyproject.toml [tool.ruff.lint])
 pip-audit>=2.10.1     # dependency vulnerability scan (see README "Dependency security")
 build>=1.6.0         # sdist/wheel build used by the publish workflow
