@@ -30,6 +30,7 @@ from .BatchIdException import BatchIdException
 from .PolicyInvalidException import PolicyInvalidException
 from .StackableUnitAmountException import StackableUnitAmountException
 from .StackableUnitDecimalsException import StackableUnitDecimalsException
+from .SecretStorageException import SecretStorageException
 
 # Export public API
 __all__ = (
@@ -61,5 +62,6 @@ __all__ = (
     'BatchIdException',
     'PolicyInvalidException',
     'StackableUnitAmountException',
-    'StackableUnitDecimalsException'
+    'StackableUnitDecimalsException',
+    'SecretStorageException',
 )

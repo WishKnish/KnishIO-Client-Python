@@ -16,6 +16,22 @@ history. Entries at and below `0.8.1` are reconstructed from commit messages
 rather than written at release time; where the history does not substantiate a
 detail, the entry says so instead of guessing.
 
+## [Unreleased]
+
+### Added
+
+- Hardware-compatible envelope encryption secret storage layer (`knishioclient.storage`):
+  - `SecretStorageException` with `not_found`, `decryption_failed`, and `unavailable` error factories.
+  - Pluggable storage backend interface `StorageBackend` with thread-safe `MemoryStorageBackend` and atomic `FileStorageBackend` (mode 0o600 with atomic tempfile replacement).
+  - Cross-SDK envelope models `SecretStorageMetadata` and `EncryptedSecretPayload` (AES-256-GCM, PBKDF2-HMAC-SHA256 @ 100,000 iterations, 16-byte salt, 12-byte IV, camelCase metadata keys).
+  - Secret storage providers: `SecretStorageProvider` ABC, `MemorySecretStorageProvider`, and `AesGcmSecretStorageProvider` interoperable with TypeScript, JavaScript, Kotlin, and Rust SDKs.
+  - Memory hygiene helpers in `knishioclient.libraries.crypto`: `zeroize`, `constant_time_compare`, and `with_secure_bytes`.
+  - `KnishIOClient` integration with `secret_storage` constructor argument, `set_secret_storage()`, `get_secret_storage()`, `retrieve_secret()`, automatic storage synchronization in `set_secret()`, and just-in-time unwrapping in `create_molecule()`.
+  - Secret recovery support (`recover_secret` & `recovery_passphrase`): cross-SDK secret recovery envelope support. When `options.recovery_passphrase` is provided to `store_secret`, a secondary software envelope is sealed and stored under `knishio:recovery:<bundleHash>`. `recover_secret` opens the recovery record and re-enrolls the master secret under the provider's active key without leaking plaintext.
+  - `RECOVERY_KEY_PREFIX = "knishio:recovery:"` constant and `StorageOptions` extensions for `recovery_passphrase` and `allow_unrecoverable` (with camelCase property aliases).
+  - Dual deletion in `delete_secret` (removes both primary and recovery keys) and recovery key filtering in `list_secrets`.
+  - Test coverage: unit tests in `tests/test_secret_storage.py` covering envelope encryption, re-enrollment, dual deletion, key filtering, error conditions, and canonical vector decrypt in `tests/test_cross_platform_vectors.py`.
+
 ## [1.0.0] — 2026-09-10
 
 ### Added

@@ -3,7 +3,8 @@ from . import strings
 from .Base58 import Base58
 from .Soda import Soda
 from .NobleMLKEMBridge import NobleMLKEMBridge
-from typing import List, Dict, Tuple, TypeVar
+import hmac
+from typing import List, Dict, Tuple, TypeVar, Any, Callable, Union
 from hashlib import shake_256 as shake
 
 
@@ -154,3 +155,43 @@ def shake256(input_data: str, output_length: int) -> str:
     # output_length is in bits, hexdigest expects bytes
     return sponge.hexdigest(output_length // 8)
 
+
+
+def zeroize(b: Any) -> None:
+    """
+    Overwrites bytearray, list, or mutable sequence with zeros in-place.
+    """
+    if isinstance(b, bytearray):
+        for i in range(len(b)):
+            b[i] = 0
+    elif isinstance(b, list):
+        for i in range(len(b)):
+            b[i] = 0
+
+
+def constant_time_compare(val1: Union[str, bytes, bytearray], val2: Union[str, bytes, bytearray]) -> bool:
+    """
+    Constant-time comparison of two strings or byte sequences to prevent timing attacks.
+    """
+    if isinstance(val1, str):
+        val1 = val1.encode('utf-8')
+    if isinstance(val2, str):
+        val2 = val2.encode('utf-8')
+    return hmac.compare_digest(bytes(val1), bytes(val2))
+
+
+def with_secure_bytes(b: bytearray, fn: Callable[[bytearray], T]) -> T:
+    """
+    Executes a callback with a mutable bytearray and ensures it is zeroized on exit.
+    """
+    try:
+        return fn(b)
+    finally:
+        zeroize(b)
+
+
+def with_secure_string(s: str, fn: Callable[[str], T]) -> T:
+    """
+    Executes a callback with a secret string.
+    """
+    return fn(s)

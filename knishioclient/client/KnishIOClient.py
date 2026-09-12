@@ -61,7 +61,16 @@ class TransferRecipient:
 
 
 class KnishIOClient(object):
-    def __init__(self, url: str, client: HttpClient = None, server_sdk_version=3, logging: bool = False, mlkem_param_set: int = 1024):
+    def __init__(
+        self,
+        url: str = None,
+        client: HttpClient = None,
+        server_sdk_version=3,
+        logging: bool = False,
+        mlkem_param_set: int = 1024,
+        secret_storage=None,
+        secretStorage=None
+    ):
         self.__client = None
         self.__cell_slug = None
         self.__secret = None
@@ -73,14 +82,25 @@ class KnishIOClient(object):
         self.__logging = False
         self.__server_sdk_version = 3
         self.__mlkem_param_set = 1024
+        self.__secret_storage = None
 
-        self.initialize(url, client, server_sdk_version, logging, mlkem_param_set)
+        storage = secretStorage if secretStorage is not None else secret_storage
+        self.initialize(url, client, server_sdk_version, logging, mlkem_param_set, storage)
 
-    def initialize(self, url: str, client: HttpClient = None, server_sdk_version: int = 3, logging: bool = False, mlkem_param_set: int = 1024):
+    def initialize(
+        self,
+        url: str = None,
+        client: HttpClient = None,
+        server_sdk_version: int = 3,
+        logging: bool = False,
+        mlkem_param_set: int = 1024,
+        secret_storage=None
+    ):
         self.reset()
         self.__logging = logging
-        self.__client = client or HttpClient(url)
+        self.__client = client or (HttpClient(url) if url else None)
         self.__server_sdk_version = server_sdk_version
+        self.__secret_storage = secret_storage
         # Route through the validating setter: assigning int(mlkem_param_set) raw silently
         # accepted values FIPS 203 does not define (e.g. 512), which then failed far away in
         # the ML-KEM bridge with a cryptic error instead of at the entry point.
@@ -93,7 +113,7 @@ class KnishIOClient(object):
         self.__secret = None
         self.__bundle = None
         self.__remainder_wallet: Wallet | None = None
-
+        self.__secret_storage = None
     def get_mlkem_parameter_set(self) -> int:
         return getattr(self, '_KnishIOClient__mlkem_param_set', 1024)
 
@@ -109,6 +129,11 @@ class KnishIOClient(object):
             raise UnauthenticatedException()
         return self.__bundle
 
+    def has_bundle(self) -> bool:
+        return self.__bundle is not None and len(self.__bundle) > 0
+
+    def get_bundle(self) -> Optional[str]:
+        return self.__bundle
     def get_server_sdk_version(self):
         return self.__server_sdk_version
 
@@ -127,18 +152,77 @@ class KnishIOClient(object):
     def client(self):
         return self.__client
 
+    def set_secret_storage(self, storage, bundle_hash: str = None):
+        self.__secret_storage = storage
+        if bundle_hash:
+            self.__bundle = bundle_hash
+        return self
+
+    def get_secret_storage(self):
+        return getattr(self, '_KnishIOClient__secret_storage', None)
+
+    def retrieve_secret(self, options=None) -> Optional[str]:
+        if self.__secret:
+            return self.__secret
+        storage = getattr(self, '_KnishIOClient__secret_storage', None)
+        if storage and self.__bundle:
+            return storage.retrieve_secret(self.__bundle, options)
+        return None
+
     def set_secret(self, secret: str):
         self.__secret = secret
         self.__bundle = generate_bundle_hash(secret)
+        storage = getattr(self, '_KnishIOClient__secret_storage', None)
+        if not storage:
+            from ..storage.MemorySecretStorageProvider import MemorySecretStorageProvider
+            storage = MemorySecretStorageProvider()
+            storage.store_secret(self.__bundle, secret)
+            self.__secret_storage = storage
+        else:
+            storage.store_secret(self.__bundle, secret)
 
     def has_secret(self):
-        return self.__secret is not None
+        has_in_mem = self.__secret is not None and len(self.__secret) > 0
+        storage = getattr(self, '_KnishIOClient__secret_storage', None)
+        has_in_storage = (
+            storage is not None
+            and self.__bundle is not None
+            and len(self.__bundle) > 0
+        )
+        return has_in_mem or has_in_storage
 
-    def create_molecule(self, secret: str = None, bundle: str = None, source_wallet: Wallet = None, remainder_wallet: Wallet = None):
-        secret = secret or self.secret()
+    def get_secret(self) -> Optional[str]:
+        return self.__secret
+
+    # Cross-SDK method aliases
+    setSecret = set_secret
+    hasSecret = has_secret
+    getSecret = get_secret
+    hasBundle = has_bundle
+    getBundle = get_bundle
+    setSecretStorage = set_secret_storage
+    getSecretStorage = get_secret_storage
+    retrieveSecret = retrieve_secret
+
+    def create_molecule(
+        self,
+        secret: str = None,
+        bundle: str = None,
+        source_wallet: Wallet = None,
+        remainder_wallet: Wallet = None,
+        **kwargs
+    ):
+        source_wallet = source_wallet or kwargs.get('sourceWallet')
+        remainder_wallet = remainder_wallet or kwargs.get('remainderWallet')
+
+        if secret is None:
+            secret = self.retrieve_secret()
+            if secret is None:
+                secret = self.secret()
         bundle = bundle or self.bundle()
 
         if source_wallet is None \
+                and self.get_remainder_wallet() is not None \
                 and self.get_remainder_wallet().token == 'USER' \
                 and self.__last_molecule_query is not None \
                 and self.__last_molecule_query.response() is not None \
@@ -178,6 +262,9 @@ class KnishIOClient(object):
 
     def secret(self):
         if self.__secret is None:
+            retrieved = self.retrieve_secret()
+            if retrieved is not None:
+                return retrieved
             raise UnauthenticatedException('Expected KnishIOClient.request_auth_token call before.')
 
         return self.__secret
@@ -186,7 +273,8 @@ class KnishIOClient(object):
         source_wallet = self.query_continu_id(self.bundle()).payload()
 
         if source_wallet is None:
-            source_wallet = Wallet(self.secret(), mlkem_param_set=self.get_mlkem_parameter_set())
+            secret_val = self.retrieve_secret() or self.secret()
+            source_wallet = Wallet(secret_val, mlkem_param_set=self.get_mlkem_parameter_set())
 
         return source_wallet
 

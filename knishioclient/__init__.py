@@ -2,6 +2,20 @@
 
 from .models import *
 from .client import KnishIOClient
+from .storage import (
+    StorageBackend,
+    MemoryStorageBackend,
+    FileStorageBackend,
+    SecretStorageMetadata,
+    EncryptedSecretPayload,
+    StorageOptions,
+    SecretStorageProvider,
+    MemorySecretStorageProvider,
+    AesGcmSecretStorageProvider,
+    seal_envelope,
+    open_envelope,
+    create_default_secret_storage,
+)
 
 __version__ = '1.0.0'
 
@@ -13,4 +27,16 @@ __all__ = (
     'Wallet',
     'Molecule',
     'KnishIOClient',
+    'StorageBackend',
+    'MemoryStorageBackend',
+    'FileStorageBackend',
+    'SecretStorageMetadata',
+    'EncryptedSecretPayload',
+    'StorageOptions',
+    'SecretStorageProvider',
+    'MemorySecretStorageProvider',
+    'AesGcmSecretStorageProvider',
+    'seal_envelope',
+    'open_envelope',
+    'create_default_secret_storage',
 )

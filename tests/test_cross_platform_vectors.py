@@ -30,6 +30,7 @@ from knishioclient.models.Atom import Atom
 from knishioclient.models.AuthToken import AuthToken
 from knishioclient.models.Molecule import Molecule
 from knishioclient.models.Wallet import Wallet
+from knishioclient.storage import AesGcmSecretStorageProvider, MemoryStorageBackend
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +316,61 @@ class LegacyMlkem768AuthMoleculeTest(unittest.TestCase):
             self.v["molecule"], include_validation_context=True, validate_structure=True
         )
         self.assertTrue(molecule.check(molecule.sourceWallet))
+
+
+class SecretStorageEnvelopeVectorTest(unittest.TestCase):
+    """
+    secret_storage_envelope: decrypt an envelope produced by a peer SDK (TypeScript).
+    Validates cross-SDK envelope compatibility and emitted metadata casing contract.
+    """
+
+    def test_secret_storage_envelope_vectors(self):
+        v = VECTORS.get("secret_storage_envelope")
+        if not v:
+            self.skipTest("secret_storage_envelope vectors not found")
+
+        for test in v["tests"]:
+            payload = test["payload"]
+            bundle_hash = test["bundleHash"]
+
+            backend = MemoryStorageBackend()
+            backend.set_item(test["storageKey"], json.dumps(payload))
+            provider = AesGcmSecretStorageProvider(backend=backend)
+
+            decrypted = provider.retrieve_secret(
+                bundle_hash,
+                options={"passphrase": test["passphrase"]}
+            )
+            self.assertEqual(
+                test["expectedPlaintext"],
+                decrypted,
+                f"failed to decrypt envelope from {test.get('producedBy')}"
+            )
+
+            # Assert what Python emits
+            our_backend = MemoryStorageBackend()
+            our_provider = AesGcmSecretStorageProvider(backend=our_backend)
+            our_provider.store_secret(
+                bundle_hash,
+                test["expectedPlaintext"],
+                options={"passphrase": test["passphrase"]}
+            )
+            raw_stored = our_backend.get_item(test["storageKey"])
+            self.assertIsNotNone(raw_stored)
+            emitted_metadata = json.loads(raw_stored or "{}")["metadata"]
+
+            for req in test["requiredMetadataKeys"]:
+                self.assertIn(req, emitted_metadata, f"Python must emit `{req}`; emitted {list(emitted_metadata.keys())}")
+
+            for forb in test["forbiddenMetadataKeys"]:
+                self.assertNotIn(forb, emitted_metadata, f"`{forb}` is snake_case and must never be emitted")
+
+            if test.get("optionalKeyConvention") == "omit-when-absent":
+                for opt in test["optionalMetadataKeys"]:
+                    self.assertNotIn(opt, emitted_metadata, f"Python must omit unset optional key `{opt}`")
+
+            self.assertFalse(emitted_metadata["hardwareBacked"], "software provider must never emit hardwareBacked=true")
+            self.assertEqual("aes-gcm", emitted_metadata["providerType"])
 
 
 if __name__ == "__main__":
