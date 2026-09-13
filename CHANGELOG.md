@@ -16,6 +16,12 @@ history. Entries at and below `0.8.1` are reconstructed from commit messages
 rather than written at release time; where the history does not substantiate a
 detail, the entry says so instead of guessing.
 
+## [Unreleased]
+
+### Changed
+
+- **BREAKING:** `AesGcmSecretStorageProvider(...)` no longer accepts arbitrary keyword arguments; passing the removed `hardwareBacked=` (or any unknown kwarg) now raises `TypeError` instead of being silently ignored. `hardwareBacked` has been provider-derived and always `False` for this software provider since 1.1.0; the wire format is unchanged.
+
 ## [1.1.0] — 2026-09-12
 
 ### Added

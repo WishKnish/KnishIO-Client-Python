@@ -398,9 +398,10 @@ class AesGcmSecretStorageProviderTest(unittest.TestCase):
 
     def test_hardware_custody_cannot_be_faked(self):
         backend = MemoryStorageBackend()
-        provider = AesGcmSecretStorageProvider(backend=backend, hardwareBacked=True)
+        with self.assertRaises(TypeError):
+            AesGcmSecretStorageProvider(backend=backend, hardwareBacked=True)  # type: ignore[call-arg]
+        provider = AesGcmSecretStorageProvider(backend=backend)
         self.assertFalse(provider.is_hardware_backed())
-
         provider.store_secret("b", "s", options={"passphrase": "p"})
         raw_stored = backend.get_item("knishio:secret:b")
         self.assertIsNotNone(raw_stored)

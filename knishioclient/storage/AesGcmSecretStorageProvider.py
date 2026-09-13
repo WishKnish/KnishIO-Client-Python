@@ -102,9 +102,7 @@ class AesGcmSecretStorageProvider(SecretStorageProvider):
         backend: Optional[StorageBackend] = None,
         default_passphrase: Optional[str] = None,
         defaultPassphrase: Optional[str] = None,
-        **kwargs
     ) -> None:
-        _ = kwargs
         self.backend = backend if backend is not None else MemoryStorageBackend()
         self.default_passphrase = defaultPassphrase if defaultPassphrase is not None else default_passphrase
 
