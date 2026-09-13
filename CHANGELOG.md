@@ -16,7 +16,7 @@ history. Entries at and below `0.8.1` are reconstructed from commit messages
 rather than written at release time; where the history does not substantiate a
 detail, the entry says so instead of guessing.
 
-## [Unreleased]
+## [1.1.0] — 2026-09-12
 
 ### Added
 
@@ -276,7 +276,8 @@ published) fixed policy ContinuID signing (F-3) by signing the R-atom from the
 established source wallet. See the git tag history and the
 [PyPI release list](https://pypi.org/project/knishioclient/#history).
 
-[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.0.0...HEAD
+[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.1.0...HEAD
+[1.1.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.1.0
 [1.0.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.0.0
 [0.9.2.post1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/0.9.2.post1
 [0.9.2]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/0.9.2
