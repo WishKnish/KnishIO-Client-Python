@@ -332,6 +332,9 @@ class SecretStorageEnvelopeVectorTest(unittest.TestCase):
         for test in v["tests"]:
             payload = test["payload"]
             bundle_hash = test["bundleHash"]
+            if test["storageKey"].startswith("knishio:recovery:"):
+                self._assert_recovery_vector(test, payload, bundle_hash)
+                continue
 
             backend = MemoryStorageBackend()
             backend.set_item(test["storageKey"], json.dumps(payload))
@@ -372,6 +375,46 @@ class SecretStorageEnvelopeVectorTest(unittest.TestCase):
             self.assertFalse(emitted_metadata["hardwareBacked"], "software provider must never emit hardwareBacked=true")
             self.assertEqual("aes-gcm", emitted_metadata["providerType"])
 
+
+    def _assert_recovery_vector(self, test, payload, bundle_hash):
+        backend = MemoryStorageBackend()
+        storage_key = test["storageKey"]
+        backend.set_item(storage_key, json.dumps(payload))
+        self.assertIsNone(backend.get_item(f"knishio:secret:{bundle_hash}"))
+
+        provider = AesGcmSecretStorageProvider(backend=backend)
+        recovery_passphrase = test["recoveryPassphrase"]
+        primary_passphrase = "xsdk-reenrolled-primary-pass"
+
+        provider.recover_secret(
+            bundle_hash,
+            recovery_passphrase,
+            options={"passphrase": primary_passphrase},
+        )
+
+        decrypted = provider.retrieve_secret(
+            bundle_hash,
+            options={"passphrase": primary_passphrase},
+        )
+        self.assertEqual(
+            test["expectedPlaintext"],
+            decrypted,
+            f"failed to recover secret from {test.get('producedBy')}",
+        )
+
+        raw_secret = backend.get_item(f"knishio:secret:{bundle_hash}")
+        raw_recovery = backend.get_item(storage_key)
+        self.assertIsNotNone(raw_secret)
+        self.assertIsNotNone(raw_recovery)
+
+        emitted_metadata = json.loads(raw_secret or "{}")["metadata"]
+        for req in test["requiredMetadataKeys"]:
+            self.assertIn(req, emitted_metadata, f"Python must emit `{req}`; emitted {list(emitted_metadata.keys())}")
+
+        for forb in test["forbiddenMetadataKeys"]:
+            self.assertNotIn(forb, emitted_metadata, f"`{forb}` is snake_case and must never be emitted")
+
+        self.assertFalse(emitted_metadata["hardwareBacked"], "software provider must never emit hardwareBacked=true")
 
 if __name__ == "__main__":
     unittest.main()
