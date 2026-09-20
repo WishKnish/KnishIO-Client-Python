@@ -5,6 +5,7 @@ import aiohttp
 import asyncio
 from ..models import Coder
 from ..libraries.array import array_get
+from ..exception import CodeException
 
 # PQ-transport Phase E: the canonical ML-KEM CipherHash transport query (matches the Rust
 # validator's CipherHash handler + the other SDKs).
@@ -79,7 +80,7 @@ class HttpClient(object):
                 return False
         return True
 
-    def send(self, request: str, options: dict = None):
+    def send(self, request: dict, options: dict = None):
         # Sync-over-async bridge. Three environments to handle:
         #  1. No event loop in this thread (plain sync caller) → create one.
         #  2. A non-running loop exists → reuse it (legacy behavior).
@@ -109,7 +110,7 @@ class HttpClient(object):
         response = loop.run_until_complete(asyncio.gather(self.__send(request, options)))
         return array_get(response, '0')
 
-    async def __send(self, request: str, options: dict = None):
+    async def __send(self, request: dict, options: dict = None):
         if options is None:
             options = {}
         options.update({
@@ -122,12 +123,18 @@ class HttpClient(object):
 
         # PQ-transport Phase E: wrap the request in the ML-KEM CipherHash envelope (encrypt to the
         # validator's pubkey); the response is decrypted back to the inner GraphQL response.
-        encrypted = (
-            self.__encrypt and self.__wallet is not None and self.__pubkey is not None
-            and self.__should_encrypt(request)
-        )
+        # Decide the bypass FIRST, then demand the keys: a bypassed operation (`__schema`,
+        # `ContinuId`, `AccessToken`, U-isotope `ProposeMolecule`) must still go out in plaintext or
+        # the auth bootstrap would deadlock encrypting to a server pubkey it has not learned yet.
+        # Anything else on an encryption-enabled client fails closed rather than silently
+        # downgrading to plaintext (matches PHP Cipher.php / Kotlin HttpClient).
+        encrypted = self.__encrypt and self.__should_encrypt(request)
         payload = request
         if encrypted:
+            if self.__wallet is None:
+                raise CodeException('Authorized wallet missing.')
+            if not self.__pubkey:
+                raise CodeException('Server public key missing.')
             payload = {
                 'query': CIPHER_HASH_QUERY,
                 'variables': {'Hash': self.__wallet.encrypt_string_ml(request, self.__pubkey)},

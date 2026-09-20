@@ -27,20 +27,26 @@ class CipherHashLiveTest(unittest.TestCase):
 
         secret = crypto.generate_secret()
 
-        # ONE authenticated session (encrypt=True → conveys the AUTH wallet's ML-KEM pubkey as a
-        # signed walletPubkey U-atom meta, so the validator can encrypt responses back to it). We
-        # vary ONLY the transport on this SAME session — the queried balance wallet stays fixed.
-        # (A fresh second auth would rotate the USER remainder via ContinuID → a different address/
-        # position/pubkey: correct protocol behaviour, NOT a transport bug.)
+        # ONE session, transport toggled on it — the queried balance wallet stays fixed. (A fresh
+        # second auth would rotate the USER remainder via ContinuID → a different address/position/
+        # pubkey: correct protocol behaviour, NOT a transport bug.)
+        #
+        # The session authenticates PLAINTEXT on purpose. The AUTH wallet's ML-KEM pubkey is
+        # conveyed as a signed walletPubkey U-atom meta regardless of `encrypt`, and the validator's
+        # CipherHash handler needs only that key — so an encrypt=False session still speaks the
+        # encrypted transport. Authenticating with encrypt=True instead would make the plaintext
+        # baseline leg below a silent downgrade, which the validator rejects when
+        # ENFORCE_ENCRYPTED_TRANSPORT is at its secure default.
         client = KnishIOClient(url)
         param = os.environ.get('CIPHERHASH_MLKEM_PARAMETER_SET')
         if param:
             client.set_mlkem_parameter_set(int(param))
         client.set_cell_slug('public')   # the active dev cell (TESTCELL is inactive there)
-        client.request_auth_token(secret, 'public', encrypt=True)
+        client.request_auth_token(secret, 'public', encrypt=False)
 
         # Encrypted round-trip: the validator ML-KEM-decrypts the request, executes it, and encrypts
         # the response back to the client's ML-KEM pubkey; the client decrypts it.
+        client.switch_encryption(True)
         enc_resp = client.query_balance('USER')
 
         # Plaintext baseline of the SAME wallet on the SAME authed session — only the transport differs.
@@ -61,6 +67,35 @@ class CipherHashLiveTest(unittest.TestCase):
         self.assertEqual(plain.pubkey, enc.pubkey)
         self.assertEqual(plain.token, enc.token)
         self.assertEqual(plain.bundle, enc.bundle)
+
+    def test_encrypted_session_is_refused_when_it_drops_to_plaintext(self):
+        """Live coverage of the enforcement path: extract_encrypt_flag → auth_tokens.encrypted →
+        requires_encrypted_transport. Also proves this SDK's signed `encrypt` meta literal is the
+        one the validator honours (Python omitted the meta entirely until cycle 175)."""
+        url = os.environ.get('CIPHERHASH_TEST_URL')
+        if not url:
+            self.skipTest('CIPHERHASH_TEST_URL not set — skipping live CipherHash test')
+
+        secret = crypto.generate_secret()
+        client = KnishIOClient(url)
+        param = os.environ.get('CIPHERHASH_MLKEM_PARAMETER_SET')
+        if param:
+            client.set_mlkem_parameter_set(int(param))
+        client.set_cell_slug('public')
+        client.request_auth_token(secret, 'public', encrypt=True)
+
+        # The encrypted transport still works for this session.
+        self.assertIsNotNone(client.query_balance('USER').payload())
+
+        # Dropping to plaintext on the same session is the silent downgrade the validator refuses.
+        client.switch_encryption(False)
+        plain_resp = client.query_balance('USER')
+        self.assertIsNone(plain_resp.payload())
+        errors = plain_resp.errors() or []
+        self.assertTrue(
+            any('CipherHash encrypted transport' in str(error) for error in errors),
+            f'expected the validator to refuse the plaintext request, got: {errors}',
+        )
 
 
 if __name__ == '__main__':

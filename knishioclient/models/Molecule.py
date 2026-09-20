@@ -1171,7 +1171,7 @@ class Molecule(MoleculeStructure):
 
         return self
     
-    def init_authorization(self):
+    def init_authorization(self, encrypt: bool = False):
         self.molecularHash = None
 
         self.atoms.append(
@@ -1185,6 +1185,11 @@ class Molecule(MoleculeStructure):
                 None,
                 None,
                 {
+                    # PQ-transport: the client's own request for an encrypted transport, signed
+                    # with the rest of this U-atom so the validator can honour it without trusting
+                    # an unsigned field (extract_encrypt_flag compares against the literal "true").
+                    # Key order mirrors the C/C++ SDKs, which emit `encrypt` first.
+                    "encrypt": "true" if encrypt else "false",
                     "pubkey": self.sourceWallet.pubkey,
                     "characters": self.sourceWallet.characters,
                     # PQ-transport Phase E: convey the AUTH source wallet's ML-KEM public key as a

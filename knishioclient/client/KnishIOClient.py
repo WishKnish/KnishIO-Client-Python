@@ -867,10 +867,13 @@ class KnishIOClient(object):
         # Create auth mutation
         query = self.create_molecule_mutation(MutationRequestAuthorization, molecule)
         
-        # PQ-transport Phase E: the AUTH source wallet's ML-KEM pubkey is conveyed as a SIGNED
-        # walletPubkey U-atom meta inside init_authorization (so the validator can encrypt CipherHash
-        # responses back to it). fill_molecule takes no meta args.
-        query.fill_molecule()
+        # PQ-transport Phase E: the AUTH source wallet's ML-KEM pubkey AND the requested transport
+        # mode travel as SIGNED U-atom metas (`walletPubkey`, `encrypt`) built inside
+        # init_authorization, so the validator can encrypt CipherHash responses back to this wallet
+        # and persist the session's `encrypted` flag. Until this was threaded through, Python never
+        # sent `encrypt` at all and every Python profile session was recorded as plaintext, so the
+        # validator's encrypted-transport enforcement could never apply to it.
+        query.fill_molecule(encrypt)
 
         # Execute the mutation
         response = query.execute()
