@@ -16,6 +16,29 @@ history. Entries at and below `0.8.1` are reconstructed from commit messages
 rather than written at release time; where the history does not substantiate a
 detail, the entry says so instead of guessing.
 
+## [1.2.0] — 2026-09-20
+
+### Added
+
+- The requested transport mode now travels as a **signed `encrypt` meta** on the authorization
+  U-atom (`Molecule.init_authorization(encrypt)` → `MutationRequestAuthorization.fill_molecule(encrypt)`
+  → `request_profile_auth_token`), emitted first to match the C and C++ key order. Python never
+  sent it before, so every Python profile session was persisted as a plaintext session and the
+  validator's encrypted-transport enforcement could not apply to a Python client.
+
+### Changed
+
+- `HttpClient` **fails closed**: `CodeException('Authorized wallet missing.')` /
+  `CodeException('Server public key missing.')` instead of a silent plaintext request when
+  encryption is requested but the transport keys are missing; an empty advertised validator key
+  counts as missing.
+
+### Notes
+
+- Both live CipherHash cases (`tests/test_cipherhash_live.py`) passed against `testnet.knish.io`
+  on 2026-09-20 at ML-KEM-1024 and ML-KEM-768, including the validator refusing a plaintext query
+  from an `encrypt: true` session.
+
 ## [1.1.1] — 2026-09-13
 
 ### Changed
@@ -282,7 +305,8 @@ published) fixed policy ContinuID signing (F-3) by signing the R-atom from the
 established source wallet. See the git tag history and the
 [PyPI release list](https://pypi.org/project/knishioclient/#history).
 
-[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.1.1...HEAD
+[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.2.0...HEAD
+[1.2.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.2.0
 [1.1.1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.1.1
 [1.1.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.1.0
 [1.0.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.0.0
