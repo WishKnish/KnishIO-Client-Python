@@ -20,6 +20,7 @@ def verify(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
     for fun in (
         'molecular_hash',
         'ots',
+        'continu_id',
         'isotope_m',
         'isotope_c',
         'isotope_t',
@@ -31,7 +32,6 @@ def verify(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
         'isotope_f',
         'isotope_v',
         'index',
-        # 'continu_id',
     ):
         # `fun in 'isotope_v'` was a SUBSTRING test, not equality. It happened to behave
         # correctly for the tuple above, but any short name added later (e.g. 'ots' is
@@ -52,8 +52,8 @@ def continu_id(molecule: 'Molecule') -> bool:
     """
     missing(molecule)
     atom = molecule.atoms[0]
-    if atom.token in 'USER' and len(isotope_filter('I', molecule.atoms)) < 1:
-        raise AtomsMissingException()
+    if atom.token == 'USER' and len(isotope_filter('I', molecule.atoms)) < 1:
+        raise AtomsMissingException('Check::continu_id() - Molecule is missing required ContinuID Atom!')
     return True
 
 

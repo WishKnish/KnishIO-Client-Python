@@ -16,6 +16,17 @@ history. Entries at and below `0.8.1` are reconstructed from commit messages
 rather than written at release time; where the history does not substantiate a
 detail, the entry says so instead of guessing.
 
+## [Unreleased]
+
+### Fixed
+
+- `Molecule.check()` now runs the ContinuID check (`knishioclient/libraries/check.py`), as the JS
+  reference's `CheckMolecule.verify` does: a molecule whose first atom spends the `USER` token must
+  carry a ContinuID `I` atom, or `check()` raises `AtomsMissingException`. `continu_id` was defined
+  but commented out of `verify()`, so such a molecule verified. Its token test is exact now
+  (`== 'USER'`); the substring test `in 'USER'` also matched tokens such as `'U'`, `'US'` and `''`.
+  Pinned by `tests/test_check_continuid.py`.
+
 ## [1.2.0] — 2026-09-20
 
 ### Added

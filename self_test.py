@@ -1124,16 +1124,17 @@ def test_negative_cases() -> bool:
             )
             invalid_molecule.atoms.append(atom)
 
-            # This should fail because there's no molecular hash
-            should_fail = invalid_molecule.check(source_wallet)
-            if should_fail:
-                log_test('Missing molecular hash validation (should FAIL)', False, 'Invalid molecule passed validation')
-                all_negative_tests_passed = False
-            else:
-                log_test('Missing molecular hash validation (should FAIL)', True)
-        except Exception:
-            # Exception is expected for missing molecular hash
+            # This should fail because there's no molecular hash — and only the missing-hash
+            # rejection counts; any other exception means that check did not fire.
+            invalid_molecule.check(source_wallet)
+            log_test('Missing molecular hash validation (should FAIL)', False, 'Invalid molecule passed validation')
+            all_negative_tests_passed = False
+        except MolecularHashMissingException:
             log_test('Missing molecular hash validation (should FAIL)', True)
+        except Exception as e:
+            log_test('Missing molecular hash validation (should FAIL)', False,
+                     f'expected MolecularHashMissingException, got {type(e).__name__}: {e}')
+            all_negative_tests_passed = False
 
         # Test 2: Invalid Molecular Hash (should fail)
         try:
@@ -1155,18 +1156,22 @@ def test_negative_cases() -> bool:
             # Sign normally
             invalid_molecule.sign()
 
-            # Then corrupt the molecular hash
-            invalid_molecule.molecular_hash = 'invalid_hash_that_should_fail_validation_check_12345678'
+            # Then corrupt the molecular hash. The attribute is camelCase: this assigned
+            # `molecular_hash`, a dead attribute, so the molecule kept its genuine hash and the
+            # case "passed" on whatever else the check happened to reject.
+            invalid_molecule.molecularHash = 'invalid_hash_that_should_fail_validation_check_12345678'
 
-            should_fail = invalid_molecule.check(source_wallet)
-            if should_fail:
-                log_test('Invalid molecular hash validation (should FAIL)', False, 'Corrupted molecule passed validation')
-                all_negative_tests_passed = False
-            else:
-                log_test('Invalid molecular hash validation (should FAIL)', True)
-        except Exception:
-            # Exception is expected for invalid molecular hash
+            # Only the hash check's own rejection counts. Any other exception means the check
+            # under test did not fire (e.g. the OTS check tripping over the corrupted hash).
+            invalid_molecule.check(source_wallet)
+            log_test('Invalid molecular hash validation (should FAIL)', False, 'Corrupted molecule passed validation')
+            all_negative_tests_passed = False
+        except MolecularHashMismatchException:
             log_test('Invalid molecular hash validation (should FAIL)', True)
+        except Exception as e:
+            log_test('Invalid molecular hash validation (should FAIL)', False,
+                     f'expected MolecularHashMismatchException, got {type(e).__name__}: {e}')
+            all_negative_tests_passed = False
 
         # Test 3: Unbalanced Transfer (should fail)
         try:
@@ -1184,7 +1189,9 @@ def test_negative_cases() -> bool:
                 token='TEST',
                 value=-1000  # Debit full balance
             )
-            invalid_molecule.atoms.append(debit_atom)
+            # add_atom assigns the atom index. Appending left both indexes None, so sign()
+            # raised TypeError sorting them and the case "passed" without reaching the check.
+            invalid_molecule.add_atom(debit_atom)
 
             credit_atom = Atom(
                 position=source_wallet.position,
@@ -1193,19 +1200,19 @@ def test_negative_cases() -> bool:
                 token='TEST',
                 value=500    # Credit only half - unbalanced!
             )
-            invalid_molecule.atoms.append(credit_atom)
+            invalid_molecule.add_atom(credit_atom)
 
             invalid_molecule.sign()
 
-            should_fail = invalid_molecule.check(source_wallet)
-            if should_fail:
-                log_test('Unbalanced transfer validation (should FAIL)', False, 'Unbalanced molecule passed validation')
-                all_negative_tests_passed = False
-            else:
-                log_test('Unbalanced transfer validation (should FAIL)', True)
-        except Exception:
-            # Exception is expected for unbalanced transfers
+            invalid_molecule.check(source_wallet)
+            log_test('Unbalanced transfer validation (should FAIL)', False, 'Unbalanced molecule passed validation')
+            all_negative_tests_passed = False
+        except TransferUnbalancedException:
             log_test('Unbalanced transfer validation (should FAIL)', True)
+        except Exception as e:
+            log_test('Unbalanced transfer validation (should FAIL)', False,
+                     f'expected TransferUnbalancedException, got {type(e).__name__}: {e}')
+            all_negative_tests_passed = False
 
         results['tests']['negativeCases'] = {
             'passed': all_negative_tests_passed,
@@ -1239,6 +1246,23 @@ def test_cross_sdk_validation() -> bool:
     results_dir = Path(shared_results_dir).resolve()
     results['crossValidation']['ran'] = True
 
+    # Canonical set mirrors requiredMoleculeKeys in sdks/canonical-test-keys.json.
+    REQUIRED_MOLECULE_TYPES = [
+        'metadata', 'simpleTransfer', 'complexTransfer', 'tokenCreation',
+        'walletCreation', 'shadowWalletClaim', 'mlkem768',
+    ]
+    # the eight SDKs' results files (edge-kit/aggregate.mjs EXPECTED_LANES)
+    CANONICAL_PEER_RESULTS = [
+        'javascript', 'typescript', 'python', 'php', 'kotlin', 'rust', 'c', 'cpp',
+    ]
+
+    # The peers are the seven canonical results files other than our own, and nothing else.
+    # Counting whatever `*-results.json` happened to be present made the denominator the
+    # number of files FOUND, so a peer whose file was missing vanished from both sides of
+    # "validated N/N". Any other `*-results.json` (or the vector masters) is ignored.
+    expected_peers = [name for name in CANONICAL_PEER_RESULTS if name != 'python']
+    results['crossValidation']['targetsExpected'] = len(expected_peers)
+
     # A missing shared directory in Round 2 is a HARD FAILURE, not a skip. This returned
     # True — "compatible" — having found nothing to check. Absence of evidence must never
     # be reported as evidence of compatibility.
@@ -1247,32 +1271,27 @@ def test_cross_sdk_validation() -> bool:
         results['crossSdkCompatible'] = False
         return False
 
-    # Scope to *-results.json. `glob('*.json')` also matched the canonical vector MASTERS
-    # that live in this directory (canonical-patent-vectors.json,
-    # cross-platform-test-vectors.json) and fed them into the peer loop as SDK results.
-    # They carry no 'molecules' object, so they inflated the apparent peer count while
-    # contributing to neither pass nor fail.
-    result_files = [f for f in results_dir.glob('*-results.json')
-                    if 'python' not in f.name.lower()]
+    present_peers = [name for name in expected_peers
+                     if (results_dir / f'{name}-results.json').is_file()]
 
     # Zero peers in Round 2 means Round 2 did not happen.
-    if not result_files:
+    if not present_peers:
         log('  ❌ No peer SDK results found — nothing to cross-validate', 'red')
         results['crossSdkCompatible'] = False
         return False
 
-    # Canonical set mirrors requiredMoleculeKeys in sdks/canonical-test-keys.json.
-    REQUIRED_MOLECULE_TYPES = [
-        'metadata', 'simpleTransfer', 'complexTransfer', 'tokenCreation',
-        'walletCreation', 'shadowWalletClaim', 'mlkem768',
-    ]
-
-    results['crossValidation']['targetsExpected'] = len(result_files)
     peers_validated = 0
     all_valid = True
 
-    for file_path in result_files:
-        sdk_name = file_path.stem.replace('-results', '')
+    for sdk_name in expected_peers:
+        if sdk_name not in present_peers:
+            log(f'  ❌ {sdk_name}-results.json missing', 'red')
+            continue
+        file_path = results_dir / f'{sdk_name}-results.json'
+        # A peer counts as validated only if every required molecule was present and every
+        # molecule it published verified (mlkem768: decrypted to its originalPlaintext).
+        # This counted every peer whose file merely parsed, failures included.
+        peer_ok = True
 
         try:
             with open(file_path, 'r') as f:
@@ -1289,7 +1308,7 @@ def test_cross_sdk_validation() -> bool:
             if absent:
                 log(f"    ❌ {sdk_name} published no molecule for: {', '.join(absent)}", 'red')
                 log_test(f'{sdk_name} publishes all required molecules', False)
-                all_valid = False
+                peer_ok = False
 
             for molecule_type, molecule_data in molecules.items():
                 try:
@@ -1329,7 +1348,7 @@ def test_cross_sdk_validation() -> bool:
                         log_test(f'{sdk_name} {molecule_type} decryption compatibility', mlkem_valid)
 
                         if not mlkem_valid:
-                            all_valid = False
+                            peer_ok = False
                     else:
                         # Standard molecule validation for non-ML-KEM768 types
                         molecule = Molecule.from_json(
@@ -1352,17 +1371,20 @@ def test_cross_sdk_validation() -> bool:
                         log_test(f'{sdk_name} {molecule_type} molecule validation', is_valid)
 
                         if not is_valid:
-                            all_valid = False
+                            peer_ok = False
 
                 except Exception as e:
                     log_test(f'{sdk_name} {molecule_type} validation', False)
                     log(f"    Error: {str(e)}", 'red')
-                    all_valid = False
-
-            peers_validated += 1
+                    peer_ok = False
 
         except Exception as e:
             log(f"  ❌ Failed to load {sdk_name} results: {str(e)}", 'red')
+            peer_ok = False
+
+        if peer_ok:
+            peers_validated += 1
+        else:
             all_valid = False
 
     # COVERAGE FLOOR. `all_valid` starts True and only becomes False on a DETECTED
