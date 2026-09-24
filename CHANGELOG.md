@@ -26,6 +26,9 @@ detail, the entry says so instead of guessing.
   but commented out of `verify()`, so such a molecule verified. Its token test is exact now
   (`== 'USER'`); the substring test `in 'USER'` also matched tokens such as `'U'`, `'US'` and `''`.
   Pinned by `tests/test_check_continuid.py`.
+- `Molecule.init_meta_append()` adds the ContinuID I-atom, as JS `initAppendRequest` and PHP
+  `initMetaAppend` do. Without it, the ContinuID check above rejected its molecules
+  (`AtomsMissingException`). Pinned by `tests/test_check_continuid.py`.
 
 ## [1.2.0] — 2026-09-20
 

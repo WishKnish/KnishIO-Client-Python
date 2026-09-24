@@ -57,6 +57,15 @@ class ContinuIdCheckTest(unittest.TestCase):
         self.assertEqual(sorted(atom.isotope for atom in molecule.atoms), ['I', 'M'])
         self.assertTrue(molecule.check(source_wallet))
 
+    def test_meta_append_molecule_carries_continu_id_and_verifies(self):
+        source_wallet = Wallet(secret=SECRET, token='USER', position=SOURCE_POSITION)
+        remainder_wallet = Wallet(secret=SECRET, token='USER', position=REMAINDER_POSITION)
+        molecule = Molecule(secret=SECRET, source_wallet=source_wallet, remainder_wallet=remainder_wallet)
+        molecule.init_meta_append({'action': 'append', 'name': 'ContinuID append'}, 'TestMeta', 'CONTINUID2')
+        molecule.sign()
+        self.assertTrue(molecule.check(source_wallet))
+        self.assertEqual(sorted(atom.isotope for atom in molecule.atoms), ['A', 'I'])
+
 
 if __name__ == '__main__':
     unittest.main()

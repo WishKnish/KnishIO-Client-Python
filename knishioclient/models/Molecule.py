@@ -931,6 +931,7 @@ class Molecule(MoleculeStructure):
                 self.generate_index()
             )
         )
+        self.add_continue_id_atom()
 
         self.atoms = Atom.sort_atoms(self.atoms)
 
