@@ -884,6 +884,7 @@ class KnishIOClient(object):
             # flag to match the requested mode.
             self.client().set_auth_data(response.auth_token(), response.pub_key(), wallet)
             self.client().set_encryption(encrypt)
+            self.__last_molecule_query = None
             return response
         else:
             raise UnauthenticatedException(f'Profile authentication failed: {response.reason()}')

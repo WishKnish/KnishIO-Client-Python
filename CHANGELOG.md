@@ -29,6 +29,21 @@ detail, the entry says so instead of guessing.
 - `Molecule.init_meta_append()` adds the ContinuID I-atom, as JS `initAppendRequest` and PHP
   `initMetaAppend` do. Without it, the ContinuID check above rejected its molecules
   (`AtomsMissingException`). Pinned by `tests/test_check_continuid.py`.
+- After a profile authorization (`request_profile_auth_token`, which `request_auth_token` calls
+  when it has a secret), the next molecule is signed from the ContinuID position the validator
+  reports (`query_continu_id`) instead of from the auth molecule's cached USER remainder wallet.
+  From validator 0.5.0 an unproven re-authorization (every login of an identity after its first)
+  no longer creates a wallet at its I-atom position or moves the ContinuID pointer there, so the
+  first molecule after such a login was rejected with `Wallet not found: bundle=…, position=…`.
+  Querying the pointer is correct against earlier validators too. Pinned by
+  `tests/test_auth_continuid_source_wallet.py`.
+- `ResponseContinuId.payload()` (`knishioclient/response/ResponseContinuId.py`) called
+  `Wallet.json_to_object`, which does not exist, so asking the validator for the ContinuID wallet
+  raised `AttributeError: type object 'Wallet' has no attribute 'json_to_object'` whenever the
+  bundle had a pointer. That broke `get_source_wallet()` and every method that calls it, including
+  `create_meta` on any authenticated identity. It now builds the wallet with the same
+  `_wallet_from_data` helper `ResponseWalletList` uses. The fix above depends on it; the same test
+  parses a real `ContinuId` response.
 
 ## [1.2.0] — 2026-09-20
 
