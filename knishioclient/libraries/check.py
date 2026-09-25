@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import json
 from hashlib import shake_256 as shake
 from ..exception import *
 from ..libraries import strings, decimal
@@ -25,6 +26,7 @@ def verify(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
         'isotope_c',
         'isotope_t',
         'isotope_i',
+        'isotope_r',
         'isotope_u',
         'isotope_p',
         'isotope_a',
@@ -113,6 +115,39 @@ def isotope_i(molecule: 'Molecule') -> bool:
             raise WrongTokenTypeException('Invalid token name for %s isotope' % atom.isotope)
         if atom.index == 0:
             raise AtomIndexException('Invalid isotope "%s" index' % atom.isotope)
+    return True
+
+
+def isotope_r(molecule: 'Molecule') -> bool:
+    """
+    Mirrors JS CheckMolecule.isotopeR: a policy may hold only read/write, and a rule must be a
+    non-empty array of well-formed rules. The validator rejects these at Tier 2, after it has
+    consumed the signing key, so they must fail here first.
+
+    :param molecule: Molecule
+    :return: bool
+    :raise [MetaMissingException, RuleArgumentException, MolecularHashMissingException, AtomsMissingException]
+    """
+    missing(molecule)
+
+    for atom in isotope_filter('R', molecule.atoms):
+        metas = models.Meta.aggregate_meta(models.Meta.normalize_meta(atom.meta))
+
+        if metas.get('policy'):
+            policy = json.loads(metas['policy'])
+            if not isinstance(policy, dict) or not all(key in ('read', 'write') for key in policy):
+                raise MetaMissingException('Check::isotopeR() - Mixing rules with politics!')
+
+        if metas.get('rule'):
+            rules = json.loads(metas['rule'])
+            if not isinstance(rules, list):
+                raise MetaMissingException('Check::isotopeR() - Incorrect rule format!')
+            for item in rules:
+                if not isinstance(item, dict):
+                    raise MetaMissingException('Check::isotopeR() - Incorrect rule format!')
+                models.Rule.to_object(item)
+            if len(rules) < 1:
+                raise MetaMissingException('Check::isotopeR() - No rules!')
     return True
 
 

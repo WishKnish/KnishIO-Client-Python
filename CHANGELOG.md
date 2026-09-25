@@ -58,8 +58,12 @@ detail, the entry says so instead of guessing.
   that called the nonexistent `add_continuid_atom()`. It now normalises each rule through the new
   `Rule`/`Condition`/`Callback` models (`knishioclient/models/Rule.py`, ported from JS), serialises
   it as JS `JSON.stringify` does (`strings.js_json_stringify`), always adds the policy, and appends
-  the ContinuID atom. Malformed rules raise `MetaMissingException`/`RuleArgumentException` before
-  signing. The unused, misspelled `Molecule.crate_rule` is removed.
+  the ContinuID atom. A rule without its condition or callback, or a callback without an action,
+  raises `MetaMissingException`/`RuleArgumentException` while the molecule is being built.
+  `Molecule.check()` now also runs the JS `isotopeR` check (`check.isotope_r`), so an empty rule
+  list, a non-array rule or a policy with keys other than `read`/`write` raises
+  `MetaMissingException` before the molecule is sent. The validator rejects those only after
+  consuming the signing key. The unused, misspelled `Molecule.crate_rule` is removed.
 - `create_meta(..., policy=...)` works. `AtomMeta.add_policy` merged raw `read`/`write` keys whose
   values were dicts, so the validator refused the whole mutation: `Invalid value for argument
   "molecule.atoms.1.meta.1.value", expected type "String"`. It now stores the policy as one JSON

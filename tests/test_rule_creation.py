@@ -130,6 +130,20 @@ class RuleCreationTest(unittest.TestCase):
         self.assertTrue(molecule.check(source_wallet))
         self.assertEqual(sorted(atom.isotope for atom in molecule.atoms), ['I', 'R'])
 
+    def test_empty_rule_list_is_refused_before_sending(self):
+        # JS CheckMolecule.isotopeR throws 'No rules!'; without it the validator rejects the
+        # molecule at Tier 2, after consuming the signing key.
+        secret = crypto.generate_secret('TESTSEED')
+        source_wallet = Wallet(secret=secret, token='USER', position='1' * 64)
+        molecule = Molecule(secret=secret, source_wallet=source_wallet,
+                            remainder_wallet=Wallet(secret=secret, token='USER', position='2' * 64))
+        molecule.init_rule_creation('TestRule', 'RULE2', [])
+        molecule.sign()
+
+        with self.assertRaises(MetaMissingException) as raised:
+            molecule.check(source_wallet)
+        self.assertIn('No rules!', str(raised.exception))
+
 
 if __name__ == '__main__':
     unittest.main()
