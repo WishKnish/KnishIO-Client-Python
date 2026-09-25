@@ -16,7 +16,7 @@ history. Entries at and below `0.8.1` are reconstructed from commit messages
 rather than written at release time; where the history does not substantiate a
 detail, the entry says so instead of guessing.
 
-## [Unreleased]
+## [1.2.1] — 2026-09-25
 
 ### Fixed
 
@@ -53,6 +53,12 @@ detail, the entry says so instead of guessing.
   `knishioclient/bin/`, and refuses to build without them. Node.js 20.19 or later must be on the
   `PATH`. The publish workflow's wheel check now runs outside the checkout, where it imports the
   installed wheel rather than the source tree, and it constructs a wallet.
+
+### Notes
+
+- Needed against validator 0.5.0 and later, which testnet.knish.io has run since 2026-09-24:
+  earlier releases are rejected with `Wallet not found` on the first molecule after the second
+  and later logins of an identity.
 
 ## [1.2.0] — 2026-09-20
 
@@ -343,7 +349,8 @@ published) fixed policy ContinuID signing (F-3) by signing the R-atom from the
 established source wallet. See the git tag history and the
 [PyPI release list](https://pypi.org/project/knishioclient/#history).
 
-[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.2.0...HEAD
+[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.2.1...HEAD
+[1.2.1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.2.1
 [1.2.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.2.0
 [1.1.1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.1.1
 [1.1.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.1.0
