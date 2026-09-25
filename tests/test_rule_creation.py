@@ -77,8 +77,8 @@ class RuleCreationTest(unittest.TestCase):
         self.assertEqual(meta['rule'], EXPECTED_RULE)
         self.assertEqual(meta['policy'], '{"read":{"0":["all"]},"write":{"0":["self"]}}')
         # The JS reference (@wishknish/knishio-client-js 1.2.1, same inputs) hashes this atom to the
-        # value below. TS pins '038ge57d…' instead: its createRule skips addPolicy for an empty
-        # policy (src/core/Molecule.ts:961-964), while JS always adds it (Molecule.js:842).
+        # value below. TS pins the same digest since its createRule always adds the policy, as JS
+        # does (Molecule.js:842).
         self.assertEqual(Atom.hash_atoms([pinned(atom)]),
                          '0044d2d333e085af0bdee84gd6a7e52g516f603f685bdefbfb8044f9af096507')
 

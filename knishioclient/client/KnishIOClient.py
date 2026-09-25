@@ -3,7 +3,6 @@ from typing import Optional, Dict, Any, Union, Callable
 from dataclasses import dataclass
 import asyncio
 import time
-import json
 from ..exception import (
     UnauthenticatedException,
     CodeException,
@@ -422,7 +421,7 @@ class KnishIOClient(object):
             # ('expected type "String"'). Mirror C++/JS which send "1"/"0".
             data_metas['splittable'] = '1'
             data_metas['decimals'] = '0'
-            data_metas['tokenUnits'] = json.dumps(units)
+            data_metas['tokenUnits'] = strings.js_json_stringify(units)
             initial_amount = len(units)
 
         query = self.create_molecule_mutation(MutationCreateToken)

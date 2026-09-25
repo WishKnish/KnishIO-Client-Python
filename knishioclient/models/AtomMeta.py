@@ -3,6 +3,7 @@
 from typing import Dict
 from json import dumps
 from .base import Base
+from ..libraries import strings
 from .PolicyMeta import PolicyMeta
 
 USE_META_CONTEXT = False
@@ -29,7 +30,7 @@ class AtomMeta(Base):
         # Only add metadata that is explicitly needed for the specific operation
         wallet_meta = {}
         if wallet.tokenUnits:
-            wallet_meta.update({"tokenUnits": dumps(wallet.get_token_units_data())})
+            wallet_meta.update({"tokenUnits": strings.js_json_stringify(wallet.get_token_units_data())})
         if wallet.tradeRates:
             wallet_meta.update({"tradeRates": dumps(wallet.tradeRates)})
         if wallet_meta:

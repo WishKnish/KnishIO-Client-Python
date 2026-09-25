@@ -16,6 +16,17 @@ history. Entries at and below `0.8.1` are reconstructed from commit messages
 rather than written at release time; where the history does not substantiate a
 detail, the entry says so instead of guessing.
 
+## [Unreleased]
+
+### Fixed
+
+- The `tokenUnits` meta is serialized as JS `JSON.stringify` writes it: compact separators and
+  non-ASCII kept as-is (`strings.js_json_stringify`). `json.dumps` wrote `", "` and `": "` and
+  escaped non-ASCII, so every stackable V atom (`AtomMeta.set_atom_wallet`) hashed to different
+  bytes than JS for the same units, and `create_token(..., units=...)` sent a differently
+  formatted `tokenUnits` meta. The validator accepted both forms; this is byte parity with JS.
+  Pinned by `tests/test_token_units_json.py`.
+
 ## [1.2.1] — 2026-09-25
 
 ### Fixed
