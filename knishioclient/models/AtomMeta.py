@@ -67,8 +67,10 @@ class AtomMeta(Base):
         })
 
     def add_policy(self, policy: Dict) -> "AtomMeta":
-        policy_meta = PolicyMeta(policy, list(self.meta.keys()))
-        return self.merge(policy_meta.get())
+        # JS AtomMeta.addPolicy passes Object.keys() of its normalised meta ARRAY, i.e. the entry
+        # indices, and stores the policy as one JSON string under `policy` (hashed into the atom).
+        policy_meta = PolicyMeta(policy, [str(index) for index in range(len(self.meta))])
+        return self.merge({"policy": policy_meta.to_json()})
 
     def get(self) -> Dict:
           return self.meta

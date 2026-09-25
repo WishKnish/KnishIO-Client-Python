@@ -53,6 +53,18 @@ detail, the entry says so instead of guessing.
   `knishioclient/bin/`, and refuses to build without them. Node.js 20.19 or later must be on the
   `PATH`. The publish workflow's wheel check now runs outside the checkout, where it imports the
   installed wheel rather than the source tree, and it constructs a wallet.
+- `KnishIOClient.create_rule()` works, and builds the same R atom as the JS reference's
+  `createRule`. `Molecule.init_rule_creation` raised `TypeError` on `AtomMeta(data=...)`, and past
+  that called the nonexistent `add_continuid_atom()`. It now normalises each rule through the new
+  `Rule`/`Condition`/`Callback` models (`knishioclient/models/Rule.py`, ported from JS), serialises
+  it as JS `JSON.stringify` does (`strings.js_json_stringify`), always adds the policy, and appends
+  the ContinuID atom. Malformed rules raise `MetaMissingException`/`RuleArgumentException` before
+  signing. The unused, misspelled `Molecule.crate_rule` is removed.
+- `create_meta(..., policy=...)` works. `AtomMeta.add_policy` merged raw `read`/`write` keys whose
+  values were dicts, so the validator refused the whole mutation: `Invalid value for argument
+  "molecule.atoms.1.meta.1.value", expected type "String"`. It now stores the policy as one JSON
+  `policy` meta, filled from the meta entries' indices, as JS `AtomMeta.addPolicy` does. Pinned by
+  `tests/test_rule_creation.py` against the JS SDK's digests for the same inputs.
 
 ### Notes
 

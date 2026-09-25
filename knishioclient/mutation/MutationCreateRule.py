@@ -17,8 +17,6 @@ class MutationCreateRule(MutationProposeMolecule):
         :param rule: List of rule objects
         :param policy: Policy dict (optional)
         """
-        # For now, we'll need to add the create_rule method to Molecule
-        # This is a placeholder that will need the Molecule.init_rule_creation method
         self.molecule().init_rule_creation(meta_type, meta_id, rule, policy or {})
         self.molecule().sign()
         self.molecule().check()

@@ -10,6 +10,7 @@ from .base import Coder
 from .MoleculeStructure import MoleculeStructure
 from .Atom import Atom
 from .AtomMeta import AtomMeta
+from .Rule import Rule
 from .Meta import Meta
 from .Wallet import Wallet
 
@@ -376,38 +377,6 @@ class Molecule(MoleculeStructure):
             meta_id = self.remainderWallet.bundle,
             meta = continu_id_meta
         ))
-        return self
-
-    def crate_rule(self, meta_type: str, meta_id: str | bytes | int,
-                   meta: List[Dict[str, str | int | float]] | Dict[str, str | int | float]):
-        aggregate_meta = Meta.aggregate_meta(Meta.normalize_meta(meta))
-
-        if all(key not in aggregate_meta for key in ("conditions", "callback", "rule")):
-            raise MetaMissingException('No or not defined conditions or callback or rule in meta')
-
-        for index in ("conditions", "callback", "rule"):
-            if isinstance(aggregate_meta[index], (list, Dict)):
-                aggregate_meta[index] = Coder().encode(aggregate_meta[index])
-
-        self.add_atom(
-            Atom(
-                self.sourceWallet.position,
-                self.sourceWallet.address,
-                "R",
-                self.sourceWallet.token,
-                None,
-                None,
-                meta_type,
-                meta_id,
-                self.final_metas(aggregate_meta),
-                None,
-                self.generate_index()
-            )
-        )
-
-        self.add_continue_id_atom()
-        self.atoms = Atom.sort_atoms(self.atoms)
-
         return self
 
     def replenishing_tokens(self, value, token,
@@ -980,34 +949,23 @@ class Molecule(MoleculeStructure):
         :return: self
         """
         self.molecularHash = None
-        policy = policy or {}
-        
-        # Create atom meta with rules
-        atom_meta = AtomMeta(
-            data={'rule': json.dumps(rule)}
-        )
-        
-        # Add policies to meta object
-        if policy:
-            atom_meta.add_policy(policy)
-        
-        # Create rule atom with isotope 'R'
-        self.atoms.append(
-            Atom(
-                self.sourceWallet.position,
-                self.sourceWallet.address,
-                'R',
-                self.sourceWallet.token,
-                meta_type,
-                meta_id,
-                value=None,
-                metas=[atom_meta]
-            )
-        )
-        
-        # Add ContinuID atom
-        self.add_continuid_atom()
-        
+
+        # JS Molecule.createRule: normalise through Rule.toObject, serialise like JSON.stringify,
+        # and always add the policy (JS defaults it to {}, which still fills per-key defaults).
+        rules = [item if isinstance(item, Rule) else Rule.to_object(item) for item in rule]
+        atom_meta = AtomMeta({'rule': strings.js_json_stringify([item.to_json() for item in rules])})
+        atom_meta.add_policy(policy or {})
+
+        self.add_atom(Atom.create(
+            wallet=self.sourceWallet,
+            isotope='R',
+            meta_type=meta_type,
+            meta_id=meta_id,
+            meta=atom_meta
+        ))
+
+        self.add_continue_id_atom()
+
         return self
     
     def init_deposit_buffer(self, amount: float, trade_rates: dict = None) -> 'Molecule':

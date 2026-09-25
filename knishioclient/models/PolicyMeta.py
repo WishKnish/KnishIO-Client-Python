@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
 from typing import List, Dict, Any
-from json import dumps
 from .base import Base
+from ..libraries import strings
 
 
 class PolicyMeta(Base):
@@ -14,18 +14,20 @@ class PolicyMeta(Base):
 
     @classmethod
     def normalize_policy(cls, policy: Dict[str, Any]) -> Dict:
-        return {k: dict(v) for k, v in policy.items() if v and k in ["read", "write"]}
+        # JS PolicyMeta.normalizePolicy: keep every read/write entry that is not null.
+        return {k: dict(v) for k, v in policy.items() if v is not None and k in ("read", "write")}
 
     def fill_default(self, meta_keys: List) -> None:
-        for action in ["read", "write"]:
-            policy = {v["key"]: v for v in self.policy.values() if "action" in v and v["action"] == action}
+        # JS PolicyMeta.fillDefault: in meta-key order, fill only entries that are missing.
+        for action in ("read", "write"):
             self.policy.setdefault(action, {})
-            for key in set(meta_keys) - set(policy):
-                self.policy[action][key] = ["self"] if action == "write" and key not in ["characters", "pubkey"] else [
-                    "all"]
+            for key in meta_keys:
+                if not self.policy[action].get(key):
+                    self.policy[action][key] = ["self"] if action == "write" and key not in ["characters", "pubkey"] \
+                        else ["all"]
 
     def get(self) -> Dict:
         return self.policy
 
     def to_json(self) -> str:
-        return dumps(self.policy)
+        return strings.js_json_stringify(self.policy)

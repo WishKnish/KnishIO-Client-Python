@@ -234,9 +234,10 @@ This document will explain both ways.
   response = client.create_rule(
       meta_type='MyMetaType',
       meta_id='MyMetaId',
-      rule=[
-          # Rule definition
-      ],
+      rule=[{
+          'condition': [{'key': 'role', 'value': 'admin', 'comparison': '=='}],
+          'callback': [{'action': 'allow'}]
+      }],
       policy={}  # Optional policy object
   )
 
@@ -404,7 +405,7 @@ This method involves individually building Atoms and Molecules, triggering the s
     molecule.add_atom(wallet_creation_atom)
 
     # Adding a ContinuID / remainder atom
-    molecule.add_continu_id_atom()
+    molecule.add_continue_id_atom()
     ```
 
    Molecule shortcut method example:

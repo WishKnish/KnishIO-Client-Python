@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+import json
+import re
 import time
 import logging
 import math
@@ -145,3 +147,35 @@ def number(value: float | int | str) -> float:
         return float(var)
     except (ValueError, TypeError):
         return 0.0
+
+
+_JS_ARRAY_INDEX = re.compile(r'^(0|[1-9][0-9]*)$')
+
+
+def _js_order(value: Any) -> Any:
+    """Rebuild dicts in the key order JS gives an object's own properties: canonical
+    array-index keys first, ascending, then every other key in insertion order."""
+    if isinstance(value, dict):
+        index_keys = sorted(
+            (key for key in value if isinstance(key, str) and _JS_ARRAY_INDEX.match(key)
+             and int(key) < 4294967295),
+            key=int
+        )
+        index_set = set(index_keys)
+        ordered = index_keys + [key for key in value if key not in index_set]
+        return {key: _js_order(value[key]) for key in ordered}
+    if isinstance(value, (list, tuple)):
+        return [_js_order(item) for item in value]
+    return value
+
+
+def js_json_stringify(value: Any) -> str:
+    """
+    Serialize like JS ``JSON.stringify``: compact separators, non-ASCII kept as-is, and JS
+    property order (integer-like keys first). Use it wherever a JSON string is hashed into an
+    atom, so the bytes match the JS reference SDK.
+
+    :param value: Any
+    :return: str
+    """
+    return json.dumps(_js_order(value), separators=(',', ':'), ensure_ascii=False)

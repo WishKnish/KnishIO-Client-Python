@@ -5,6 +5,7 @@ from .base import Coder
 from .TokenUnit import TokenUnit
 from .Meta import Meta
 from .PolicyMeta import PolicyMeta
+from .Rule import Rule, Condition, Callback
 from .AtomMeta import AtomMeta, USE_META_CONTEXT, DEFAULT_META_CONTEXT
 from .Atom import Atom
 from .Wallet import Wallet
@@ -22,6 +23,9 @@ __all__ = (
     'Coder',
     'TokenUnit',
     'PolicyMeta',
+    'Rule',
+    'Condition',
+    'Callback',
     'AtomMeta',
     'WalletShadow',
     'MoleculeStructure',
