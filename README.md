@@ -17,7 +17,9 @@ pip install knishioclient
 
 **Requirements:**
 - Python 3.11 or higher
-- Node.js 16 or higher (required for ML-KEM quantum-resistant cryptography)
+- Node.js 20.19 or higher on the `PATH` (required for ML-KEM quantum-resistant cryptography). The
+  wheel bundles the ML-KEM bridge and its pinned `@noble/post-quantum` modules, so a pip install
+  needs no `npm` step.
 - Virtual environment (recommended)
 - Required packages: numpy, cryptography, libnacl, base58, aiohttp
 
@@ -31,12 +33,13 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install the SDK
 pip install knishioclient
 
-# Or install runtime + dev/test tooling for development
+# Or, in a source checkout, install runtime + dev/test tooling for development
 pip install -r requirements.txt -r requirements-dev.txt
 
-# Install Node.js dependencies for the ML-KEM bridge
+# A source checkout also needs the ML-KEM bridge's pinned Node modules (building a wheel
+# refuses to run without them)
 cd bin
-npm install
+npm ci
 cd ..
 ```
 

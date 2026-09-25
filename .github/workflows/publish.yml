@@ -91,14 +91,26 @@ jobs:
       # omits directories without an __init__.py, so knishioclient.config was missing from
       # the distribution. Every test passed — they ran against the source tree, not the
       # wheel. Install the built artifact into a clean venv and import it.
-      - name: Built wheel installs and imports (clean venv)
+      #
+      # Run it OUTSIDE the checkout: `python -c` puts the current directory first on sys.path,
+      # so from the repository root `import knishioclient` loaded the SOURCE tree and this
+      # check said nothing about the wheel. Constructing a wallet derives its ML-KEM keypair
+      # through the Node bridge, which a wheel only has if setup.py bundled it (1.2.0 did not:
+      # every pip install failed with "Noble ML-KEM bridge script not found").
+      - name: Built wheel installs, imports and derives an ML-KEM key (clean venv)
+        working-directory: ${{ runner.temp }}
         run: |
           set -euo pipefail
-          python -m venv /tmp/wheelcheck
-          /tmp/wheelcheck/bin/pip install --quiet dist/*.whl
-          /tmp/wheelcheck/bin/python -c "
-          import knishioclient, knishioclient.config, knishioclient.libraries.check
-          print('imported OK, version', knishioclient.__version__)
+          python -m venv wheelcheck
+          wheelcheck/bin/pip install --quiet "$GITHUB_WORKSPACE"/dist/*.whl
+          wheelcheck/bin/python -c "
+          import base64, knishioclient, knishioclient.config, knishioclient.libraries.check
+          from knishioclient.libraries import crypto
+          from knishioclient.models import Wallet
+          assert '/site-packages/' in knishioclient.__file__, knishioclient.__file__
+          wallet = Wallet(secret=crypto.generate_secret(), token='AUTH')
+          assert len(base64.b64decode(wallet.pubkey)) == 1568, 'expected an ML-KEM-1024 public key'
+          print('wheel OK, version', knishioclient.__version__, 'from', knishioclient.__file__)
           "
 
   publish:
@@ -151,6 +163,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install build
+
+      # setup.py copies bin/'s ML-KEM bridge and its pinned node_modules into the wheel, and
+      # refuses to build without them.
+      - name: Set up Node.js (for the ML-KEM noble bridge)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: '20'
+
+      - name: Install ML-KEM bridge deps (@noble/post-quantum)
+        working-directory: bin
+        run: npm ci
 
       - name: Build sdist + wheel
         run: python -m build

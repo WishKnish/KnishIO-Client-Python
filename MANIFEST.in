@@ -1,3 +1,7 @@
 include requirements.txt
 include README.md
 include LICENSE
+# The ML-KEM bridge and its pinned Node modules, so a wheel built from the sdist carries them
+# too (setup.py copies them into knishioclient/bin/ and refuses to build without them).
+include bin/noble-mlkem-bridge.js bin/package.json bin/package-lock.json
+recursive-include bin/node_modules/@noble *

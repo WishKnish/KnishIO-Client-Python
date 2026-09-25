@@ -44,6 +44,15 @@ detail, the entry says so instead of guessing.
   `create_meta` on any authenticated identity. It now builds the wallet with the same
   `_wallet_from_data` helper `ResponseWalletList` uses. The fix above depends on it; the same test
   parses a real `ContinuId` response.
+- The wheel now ships the ML-KEM bridge. `NobleMLKEMBridge` runs `noble-mlkem-bridge.js` with Node
+  and loads `@noble/post-quantum` from the `node_modules` beside it, but both lived in the
+  repository's `bin/`, outside the package, so no wheel carried them: every pip install, 1.2.0
+  included, raised `RuntimeError: Noble ML-KEM bridge script not found` in `request_auth_token`,
+  because a wallet derives its ML-KEM keypair when it is constructed. `setup.py` now copies the
+  script, its `package.json` and lockfile, and the pinned `@noble` modules into
+  `knishioclient/bin/`, and refuses to build without them. Node.js 20.19 or later must be on the
+  `PATH`. The publish workflow's wheel check now runs outside the checkout, where it imports the
+  installed wheel rather than the source tree, and it constructs a wallet.
 
 ## [1.2.0] — 2026-09-20
 
