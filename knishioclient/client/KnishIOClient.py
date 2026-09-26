@@ -670,14 +670,13 @@ class KnishIOClient(object):
         
         return query.execute()
     
-    def withdraw_buffer_token(self, token_slug: str, amount: float, source_wallet=None, signing_wallet=None):
+    def withdraw_buffer_token(self, token_slug: str, amount: float, source_wallet=None):
         """
         Withdraws tokens from a buffer wallet
         
         :param token_slug: The token slug
         :param amount: Amount to withdraw
         :param source_wallet: Source wallet (optional, will query if not provided)
-        :param signing_wallet: Signing wallet for the transaction (optional)
         :return: Response from the mutation
         """
         from ..mutation import MutationWithdrawBufferToken
@@ -702,7 +701,7 @@ class KnishIOClient(object):
         
         # Create recipients dict with user's bundle
         recipients = {self.bundle(): amount}
-        query.fill_molecule(recipients, signing_wallet)
+        query.fill_molecule(recipients)
         
         return query.execute()
     

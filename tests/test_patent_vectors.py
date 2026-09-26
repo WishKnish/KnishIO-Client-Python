@@ -578,7 +578,7 @@ class TestBufferDepositConservation(unittest.TestCase):
                     cell_slug="buftest",
                 )
                 # Withdraw `amount` to the caller's own bundle (mirrors the client wrapper).
-                molecule.init_withdraw_buffer({source.bundle: tv["amount"]}, None)
+                molecule.init_withdraw_buffer({source.bundle: tv["amount"]})
 
                 total = 0
                 b_values = []

@@ -55,18 +55,6 @@ class AtomMeta(Base):
         # (hash_atoms already absorbs str(value), so str(1)=="1").
         return self.merge({"shadowWalletClaim": str(shadow_wallet_claim * 1)})
 
-    def set_signing_wallet(self, signing_wallet: "Wallet") -> "AtomMeta":
-        return self.merge({
-            "signingWallet": dumps({
-                "tokenSlug": signing_wallet.token,
-                "bundleHash": signing_wallet.bundle,
-                "address": signing_wallet.address,
-                "position": signing_wallet.position,
-                "pubkey": signing_wallet.pubkey,
-                "characters": signing_wallet.characters
-            })
-        })
-
     def add_policy(self, policy: Dict) -> "AtomMeta":
         # JS AtomMeta.addPolicy passes Object.keys() of its normalised meta ARRAY, i.e. the entry
         # indices, and stores the policy as one JSON string under `policy` (hashed into the atom).

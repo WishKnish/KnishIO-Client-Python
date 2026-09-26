@@ -901,7 +901,7 @@ def test_buffer_family() -> bool:
 
             molecule = Molecule(secret=secret, bundle=source.bundle, source_wallet=source)
             # Withdraw to the caller's own bundle (single recipient), mirroring the client wrapper.
-            molecule.init_withdraw_buffer({source.bundle: tv['amount']}, None)
+            molecule.init_withdraw_buffer({source.bundle: tv['amount']})
             set_fixed_timestamps(molecule)
             molecule.sign()
 
@@ -939,7 +939,7 @@ def test_buffer_family() -> bool:
             if build_from == 'deposit':
                 molecule.init_deposit_buffer(tv['amount'], {})
             elif build_from == 'withdraw':
-                molecule.init_withdraw_buffer({source.bundle: tv['amount']}, None)
+                molecule.init_withdraw_buffer({source.bundle: tv['amount']})
             else:
                 raise ValueError(f"unknown buildFrom '{build_from}' in buffer_conservation_negative")
 

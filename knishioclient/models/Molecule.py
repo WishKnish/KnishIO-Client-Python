@@ -1049,12 +1049,11 @@ class Molecule(MoleculeStructure):
         
         return self
     
-    def init_withdraw_buffer(self, recipients: dict, signing_wallet=None) -> 'Molecule':
+    def init_withdraw_buffer(self, recipients: dict) -> 'Molecule':
         """
         Initialize molecule for withdrawing tokens from buffer
         
         :param recipients: Dict of recipient_bundle: amount mappings
-        :param signing_wallet: Optional signing wallet
         :return: self
         """
         from ..exception import BalanceInsufficientException
@@ -1064,11 +1063,6 @@ class Molecule(MoleculeStructure):
         
         if self.sourceWallet.balance - amount < 0:
             raise BalanceInsufficientException()
-        
-        # Set signing position for molecule reconciliation
-        first_atom_meta = AtomMeta()
-        if signing_wallet:
-            first_atom_meta.set_signing_wallet(signing_wallet)
         
         # Remove tokens from source buffer (debit the FULL balance for UTXO conservation, matching the
         # canonical JS/PHP/TS reference; the change is routed to the remainder B atom below so the V+B
@@ -1087,7 +1081,7 @@ class Molecule(MoleculeStructure):
                 self.sourceWallet.batchId,
                 'walletBundle',
                 self.sourceWallet.bundle,
-                self.final_metas(first_atom_meta.get(), self.sourceWallet),
+                self.final_metas({}, self.sourceWallet),
                 None,
                 self.generate_index()
             )

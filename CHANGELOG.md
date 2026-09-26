@@ -18,6 +18,17 @@ detail, the entry says so instead of guessing.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `withdraw_buffer_token()` no longer takes a `signing_wallet` argument, and
+  `MutationWithdrawBufferToken.fill_molecule()` and `Molecule.init_withdraw_buffer()` take only the
+  recipients. `AtomMeta.set_signing_wallet()` is removed. Code that passes a signing wallet now
+  raises `TypeError`; the `signingWallet` meta it added was always rejected by validator 0.5.0 and
+  later, so such a withdrawal could never succeed. Withdrawals without it build and sign the same
+  molecule as before. `tests/test_signing_wallet_forgery.py` pins the verifier against the shared
+  cross-SDK forgery fixture: a molecule claiming one wallet's address while signed by another
+  fails `check()` with `SignatureMismatchException`, whatever its `signingWallet` meta says.
+
 ### Fixed
 
 - The `tokenUnits` meta is serialized as JS `JSON.stringify` writes it: compact separators and
