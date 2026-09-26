@@ -6,7 +6,7 @@ from .Query import Query
 class QueryContinuId(Query):
     def __init__(self, knish_io_client: 'KnishIOClient', query: str = None):
         super(QueryContinuId, self).__init__(knish_io_client, query)
-        self.default_query = 'query ($bundle: String!) { ContinuId(bundle: $bundle) @fields }'
+        self.default_query = 'query ($bundle: String!, $token: String) { ContinuId(bundle: $bundle, token: $token) @fields }'
         self.fields = {
             'address': None,
             'bundleHash': None,

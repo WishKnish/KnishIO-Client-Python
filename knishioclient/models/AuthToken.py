@@ -90,9 +90,11 @@ class AuthToken:
         Returns:
             Restored AuthToken instance
         """
+        # A pointer-signed session is bound to the USER wallet at the ContinuID pointer; snapshots
+        # that predate the recorded wallet token were always AUTH-bound.
         wallet = Wallet(
             secret=secret,
-            token='AUTH',
+            token=snapshot['wallet'].get('token') or 'AUTH',
             position=snapshot['wallet'].get('position'),
             characters=snapshot['wallet'].get('characters'),
             mlkem_param_set=cls.resolve_mlkem_param_set(snapshot)
@@ -139,6 +141,7 @@ class AuthToken:
         
         if self.__wallet:
             snapshot['wallet'] = {
+                'token': self.__wallet.token,
                 'position': self.__wallet.position,
                 'characters': self.__wallet.characters,
                 'mlKemParameterSet': self.__wallet.mlkem_param_set

@@ -2,6 +2,7 @@
 from typing import Optional, Dict, Any, Union, Callable
 from dataclasses import dataclass
 import asyncio
+import logging
 import time
 from ..exception import (
     UnauthenticatedException,
@@ -9,7 +10,8 @@ from ..exception import (
     TransferBalanceException,
     NegativeMeaningException,
     BalanceInsufficientException,
-    StackableUnitAmountException
+    StackableUnitAmountException,
+    InvalidResponseException
 )
 from ..query import (
     Query,
@@ -43,6 +45,8 @@ from ..libraries import decimal, strings, crypto
 from ..config.standard_config import ClientConfig, MetaConfig, TokenConfig
 from ..response.standard_response import StandardResponse
 from .HttpClient import HttpClient
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -277,8 +281,11 @@ class KnishIOClient(object):
 
         return source_wallet
 
-    def query_continu_id(self, bundle_hash: str):
-        return self.create_query(QueryContinuId).execute({'bundle': bundle_hash})
+    def query_continu_id(self, bundle_hash: str, token: str = None):
+        variables = {'bundle': bundle_hash}
+        if token is not None:
+            variables['token'] = token
+        return self.create_query(QueryContinuId).execute(variables)
 
     def get_remainder_wallet(self) -> Wallet:
         return self.__remainder_wallet
@@ -842,30 +849,82 @@ class KnishIOClient(object):
     def request_profile_auth_token(self, secret: str, encrypt: bool = False):
         """
         Requests a profile authentication token
-        
+
+        A returning user's authorization is signed from the ContinuID pointer with the USER wallet
+        registered there, so the validator (0.5.0+) marks the token proven and the session keeps
+        read and subscription access to permissioned and private cells. A first login (no
+        pointer) signs from a fresh AUTH wallet. A rejected pointer-signed authorization falls
+        back ONCE to a fresh AUTH wallet, so one login sends at most two authorization molecules.
+
         :param secret: The user's secret
         :param encrypt: Whether to use encryption
         :return: Response with auth token
         """
-        
-        self.set_secret(secret)
-        
-        # Create wallet for authentication
-        wallet = Wallet(secret=secret, token='AUTH', mlkem_param_set=self.get_mlkem_parameter_set())
 
-        # Create molecule with the AUTH source + an explicit USER remainder (mirror JS createMolecule),
-        # so the ContinuID I-atom (init_authorization) is USER-token. Without this, create_molecule
-        # auto-derives the remainder from source_wallet.token (AUTH) → a wrong-token I-atom.
+        self.set_secret(secret)
+
+        pointer_wallet = self.__continu_id_authorization_wallet()
+        if pointer_wallet is not None:
+            response = self.__propose_profile_authorization(pointer_wallet, encrypt)
+            if response.success():
+                logger.info('Profile authorization signed from the ContinuID pointer (position %s).',
+                            pointer_wallet.position)
+                return self.__bind_profile_authorization(response, pointer_wallet, encrypt)
+            logger.warning('Pointer-signed profile authorization rejected (%s); retrying once from a '
+                           'fresh AUTH wallet.', response.reason())
+
+        wallet = Wallet(secret=secret, token='AUTH', mlkem_param_set=self.get_mlkem_parameter_set())
+        response = self.__propose_profile_authorization(wallet, encrypt)
+
+        if response.success():
+            logger.info('Profile authorization signed from a fresh AUTH wallet (%s).',
+                        'pointer fallback' if pointer_wallet is not None else 'no ContinuID pointer')
+            return self.__bind_profile_authorization(response, wallet, encrypt)
+        else:
+            raise UnauthenticatedException(f'Profile authentication failed: {response.reason()}')
+
+    def __continu_id_authorization_wallet(self) -> Wallet | None:
+        """The USER wallet registered at the bundle's ContinuID pointer, rebuilt from the secret,
+        or None when there is no usable pointer (first login, non-USER wallet, empty position, or a
+        pointer address this secret does not derive). The query is filtered to token USER: without
+        the filter the validator falls back to the newest wallet of ANY token when the bundle has
+        no ContinuID meta. ContinuId is public and bypasses the encrypted transport, so this works
+        on a fresh client; query and transport errors propagate."""
+        response = self.query_continu_id(self.bundle(), 'USER')
+        if response.errors() is not None:
+            raise InvalidResponseException(f'ContinuId query failed: {response.errors()}')
+
+        pointer = response.payload()
+        if pointer is None or pointer.token != 'USER' or not pointer.position:
+            return None
+
+        wallet = Wallet(
+            secret=self.secret(),
+            token='USER',
+            position=pointer.position,
+            mlkem_param_set=self.get_mlkem_parameter_set()
+        )
+        if pointer.address and pointer.address != wallet.address:
+            return None
+
+        return wallet
+
+    def __propose_profile_authorization(self, wallet: Wallet, encrypt: bool):
+        # The source wallet (AUTH, or the USER wallet at the ContinuID pointer) signs the U-atom;
+        # an explicit USER remainder at a fresh position (mirror JS createMolecule) makes the
+        # ContinuID I-atom USER-token with previousPosition = the source position. Without it,
+        # create_molecule auto-derives the remainder from source_wallet.token (AUTH) → a
+        # wrong-token I-atom.
         molecule = self.create_molecule(
             self.secret(),
             source_wallet=wallet,
             remainder_wallet=Wallet.create(self.secret(), self.bundle(), 'USER', mlkem_param_set=self.get_mlkem_parameter_set())
         )
-        
+
         # Create auth mutation
         query = self.create_molecule_mutation(MutationRequestAuthorization, molecule)
-        
-        # PQ-transport Phase E: the AUTH source wallet's ML-KEM pubkey AND the requested transport
+
+        # PQ-transport Phase E: the source wallet's ML-KEM pubkey AND the requested transport
         # mode travel as SIGNED U-atom metas (`walletPubkey`, `encrypt`) built inside
         # init_authorization, so the validator can encrypt CipherHash responses back to this wallet
         # and persist the session's `encrypted` flag. Until this was threaded through, Python never
@@ -873,19 +932,16 @@ class KnishIOClient(object):
         # validator's encrypted-transport enforcement could never apply to it.
         query.fill_molecule(encrypt)
 
-        # Execute the mutation
-        response = query.execute()
+        return query.execute()
 
-        if response.success():
-            # Plumb the auth token + the validator's ML-KEM pubkey + the AUTH source wallet (the one
-            # that decrypts CipherHash responses) into the transport, and set the session encryption
-            # flag to match the requested mode.
-            self.client().set_auth_data(response.auth_token(), response.pub_key(), wallet)
-            self.client().set_encryption(encrypt)
-            self.__last_molecule_query = None
-            return response
-        else:
-            raise UnauthenticatedException(f'Profile authentication failed: {response.reason()}')
+    def __bind_profile_authorization(self, response, wallet: Wallet, encrypt: bool):
+        # Plumb the auth token + the validator's ML-KEM pubkey + the source wallet (the one that
+        # decrypts CipherHash responses) into the transport, and set the session encryption flag to
+        # match the requested mode.
+        self.client().set_auth_data(response.auth_token(), response.pub_key(), wallet)
+        self.client().set_encryption(encrypt)
+        self.__last_molecule_query = None
+        return response
     
     # =======================================================================
     # Enhanced API Methods with StandardResponse Framework Integration

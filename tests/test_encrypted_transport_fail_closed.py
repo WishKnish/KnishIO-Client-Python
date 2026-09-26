@@ -17,6 +17,7 @@ The bypass set must keep working: the auth bootstrap (``__schema``, ``ContinuId`
 what it is fetching.
 """
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -37,6 +38,7 @@ SECRET = "a1b2c3d4e5f6" * 8
 URL = "https://test.local/graphql"
 BALANCE_REQUEST = {"query": 'query B { Balance(token: "USER") { address } }', "variables": {}}
 INTROSPECTION_REQUEST = {"query": "query { __schema { types { name } } }", "variables": {}}
+PROPOSE_QUERY = "mutation( $molecule: MoleculeInput! ) { ProposeMolecule( molecule: $molecule ) {status} }"
 
 
 class _FakeResponse(object):
@@ -133,6 +135,56 @@ class EncryptedTransportFailClosedTest(unittest.TestCase):
         self.assertIn("CipherHash", payload["query"])
         self.assertIsInstance(payload["variables"]["Hash"], str)
         self.assertNotIn("Balance", payload["variables"]["Hash"])
+
+
+class EncryptedProposeMoleculeTest(unittest.TestCase):
+    """A ProposeMolecule request carries the Molecule model itself (``Coder`` serializes it on the
+    wire), not a dict. The U-isotope bypass read ``molecule.get('atoms')`` and raised
+    AttributeError, so an encryption-enabled session could propose nothing -- not even the next
+    login -- and encrypting a non-U molecule failed to serialize the model."""
+
+    def setUp(self):
+        _FakeSession.sent = []
+        patcher = mock.patch("aiohttp.ClientSession", _FakeSession)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.wallet = Wallet(secret=SECRET, token="AUTH")
+        self.client = HttpClient(URL)
+        self.client.set_encryption(True)
+        self.client.set_auth_data("T", pubkey=self.wallet.pubkey, wallet=self.wallet)
+        self.bundle = crypto.generate_bundle_hash(SECRET)
+
+    def _molecule(self):
+        return Molecule(
+            secret=SECRET,
+            bundle=self.bundle,
+            source_wallet=Wallet(secret=SECRET, token="USER"),
+            remainder_wallet=Wallet.create(SECRET, self.bundle, "USER"),
+        )
+
+    def test_an_authorization_molecule_is_sent_in_plaintext(self):
+        molecule = self._molecule().init_authorization(True)
+        request = {"query": PROPOSE_QUERY, "variables": {"molecule": molecule}}
+
+        self.client.send(request)
+
+        self.assertEqual([request], _FakeSession.sent)
+
+    def test_a_non_u_molecule_is_encrypted_with_its_atoms(self):
+        molecule = self._molecule()
+        molecule.add_continue_id_atom()
+        request = {"query": PROPOSE_QUERY, "variables": {"molecule": molecule}}
+
+        self.client.send(request)
+
+        self.assertEqual(1, len(_FakeSession.sent))
+        payload = _FakeSession.sent[0]
+        self.assertIn("CipherHash", payload["query"])
+        inner = self.wallet.decrypt_my_message_ml(json.loads(payload["variables"]["Hash"]))
+        atoms = inner["variables"]["molecule"]["atoms"]
+        self.assertEqual(["I"], [atom["isotope"] for atom in atoms])
+        self.assertEqual(molecule.atoms[0].position, atoms[0]["position"])
+
 
 
 class AuthMoleculeEncryptMetaTest(unittest.TestCase):

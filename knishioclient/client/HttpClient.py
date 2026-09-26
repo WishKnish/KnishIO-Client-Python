@@ -75,8 +75,13 @@ class HttpClient(object):
         if op_type == 'mutation' and name == 'AccessToken':
             return False
         if op_type == 'mutation' and name == 'ProposeMolecule':
-            atoms = (((request.get('variables') or {}).get('molecule') or {}).get('atoms')) or []
-            if atoms and isinstance(atoms[0], dict) and atoms[0].get('isotope') == 'U':
+            # The request carries the Molecule model (Coder serializes its `atoms`, in order, on
+            # the wire), or a dict for a pre-serialized request. Inspect whichever is sent.
+            molecule = (request.get('variables') or {}).get('molecule')
+            atoms = (molecule.get('atoms') if isinstance(molecule, dict) else getattr(molecule, 'atoms', None)) or []
+            first = atoms[0] if atoms else None
+            isotope = first.get('isotope') if isinstance(first, dict) else getattr(first, 'isotope', None)
+            if isotope == 'U':
                 return False
         return True
 
@@ -137,7 +142,9 @@ class HttpClient(object):
                 raise CodeException('Server public key missing.')
             payload = {
                 'query': CIPHER_HASH_QUERY,
-                'variables': {'Hash': self.__wallet.encrypt_string_ml(request, self.__pubkey)},
+                # Serialize through Coder first, as the plaintext wire does, so a Molecule model in
+                # the variables encrypts as the same JSON it would be sent as.
+                'variables': {'Hash': self.__wallet.encrypt_string_ml(json.loads(Coder().encode(request)), self.__pubkey)},
             }
 
         async with aiohttp.ClientSession(headers=options, json_serialize=Coder().encode) as session:

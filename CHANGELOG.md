@@ -37,6 +37,24 @@ detail, the entry says so instead of guessing.
   bytes than JS for the same units, and `create_token(..., units=...)` sent a differently
   formatted `tokenUnits` meta. The validator accepted both forms; this is byte parity with JS.
   Pinned by `tests/test_token_units_json.py`.
+- A returning user's login is now signed from the ContinuID pointer with the `USER` wallet
+  registered there, so validator 0.5.0 and later issue a proven token and the user keeps read and
+  subscription access to permissioned and private cells. `request_profile_auth_token()` queries
+  `ContinuId` with `token: "USER"` (`query_continu_id()` takes an optional `token`) and signs from
+  that wallet when its address matches the secret. The first login is unchanged (a fresh `AUTH`
+  wallet). A rejected pointer-signed login falls back once to the previous unproven login, so one
+  login sends at most two authorization molecules. Pinned by
+  `tests/test_auth_continuid_source_wallet.py`.
+- The auth-token session snapshot now records the bound wallet's token (`wallet.token`), and
+  `AuthToken.restore()` rebuilds that wallet instead of always an `AUTH` one, so a restored
+  pointer-signed session derives the right key and ML-KEM pair. Snapshots without the field still
+  restore an `AUTH` wallet.
+- An encryption-enabled session can propose molecules again. `HttpClient` read the U-isotope
+  bypass from `variables['molecule'].get('atoms')`, but the variable is the `Molecule` model, so
+  every `ProposeMolecule` raised `AttributeError` once encryption was on, including the next
+  login. The bypass now reads the model's atoms (a dict request still works), and an encrypted
+  request is serialized through `Coder` before encryption, as the plaintext wire is. Pinned by
+  `tests/test_encrypted_transport_fail_closed.py`.
 
 ## [1.2.1] — 2026-09-25
 
