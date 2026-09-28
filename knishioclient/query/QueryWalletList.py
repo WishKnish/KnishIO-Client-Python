@@ -6,17 +6,13 @@ from .Query import Query
 class QueryWalletList(Query):
     def __init__(self, knish_io_client: 'KnishIOClient', query: str = None):
         super(QueryWalletList, self).__init__(knish_io_client, query)
-        self.default_query = 'query( $address: String, $bundleHash: String, $token: String, $position: String, $unspent: Boolean ) { Wallet( address: $address, bundleHash: $bundleHash, token: $token, position: $position, unspent: $unspent ) @fields }'
+        self.default_query = 'query( $bundleHash: String, $token: String, $unspent: Boolean ) { Wallet( bundleHash: $bundleHash, token: $token, unspent: $unspent ) @fields }'
         self.fields = {
             'address': None,
             'bundleHash': None,
             'token': {
                 'name': None,
                 'amount': None,
-            },
-            'molecules': {
-                'molecularHash': None,
-                'createdAt': None,
             },
             'tokenSlug': None,
             'batchId': None,
@@ -25,6 +21,11 @@ class QueryWalletList(Query):
             'characters': None,
             'pubkey': None,
             'createdAt': None,
+            'tokenUnits': {
+                'id': None,
+                'name': None,
+                'metas': None,
+            },
         }
         self.query = query or self.default_query
 

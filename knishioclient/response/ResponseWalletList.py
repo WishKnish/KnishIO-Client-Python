@@ -18,7 +18,7 @@ def _wallet_from_data(item):
     )
     wallet.balance = float(item.get('amount') or 0)
     wallet.pubkey = item.get('pubkey')
-    # Stackable (NFT) token units (forward-compat; validator resolver stub until gap SDK-001).
+    # Stackable (NFT) token units (QueryWalletList requests Wallet.tokenUnits; fungible -> []).
     wallet.tokenUnits = [TokenUnit.create_from_graph_ql(u) for u in (item.get('tokenUnits') or [])]
     return wallet
 

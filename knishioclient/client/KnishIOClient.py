@@ -290,13 +290,18 @@ class KnishIOClient(object):
     def get_remainder_wallet(self) -> Wallet:
         return self.__remainder_wallet
 
-    def query_balance(self, token_slug: str, bundle_hash: str = None):
+    def query_balance(self, token_slug: str, bundle_hash: str = None, wallet_type: str = None):
+        """Balance of the bundle's wallet for ``token_slug``. ``wallet_type='buffer'`` selects the
+        buffer wallet (validator 0.6.1+); the default selects the regular wallet."""
         query = self.create_query(QueryBalance)
-
-        return query.execute({
+        variables = {
             'bundleHash': bundle_hash or self.bundle(),
             'token': token_slug
-        })
+        }
+        if wallet_type is not None:
+            variables['type'] = wallet_type
+
+        return query.execute(variables)
 
     def create_meta(
         self,
@@ -381,7 +386,7 @@ class KnishIOClient(object):
             'unspent': unspent
         })
 
-        return response.get_wallets()
+        return response.payload()
 
     def request_auth_token(self, secret: str = None, cell_slug: str = None, encrypt: bool = False):
         """
@@ -657,11 +662,11 @@ class KnishIOClient(object):
         """
         from ..mutation import MutationDepositBufferToken
         
-        # Get source wallet if not provided
+        # Get source wallet if not provided (the regular wallet: .payload() builds the Wallet)
         if source_wallet is None:
-            source_wallet = self.query_balance(token_slug, self.bundle())
-            if not source_wallet or source_wallet.balance < amount:
-                raise Exception(f"Insufficient balance for token {token_slug}")
+            source_wallet = self.query_balance(token_slug, self.bundle()).payload()
+            if source_wallet is None or decimal.cmp(strings.number(source_wallet.balance), amount) < 0:
+                raise BalanceInsufficientException(f'Insufficient balance for token {token_slug}')
         
         # Create remainder wallet
         remainder_wallet = source_wallet.create_remainder(self.secret())
@@ -677,39 +682,31 @@ class KnishIOClient(object):
         
         return query.execute()
     
-    def withdraw_buffer_token(self, token_slug: str, amount: float, source_wallet=None):
+    def withdraw_buffer_token(self, token_slug: str, amount: float, source_wallet: Wallet = None):
         """
-        Withdraws tokens from a buffer wallet
-        
+        Withdraws tokens from the bundle's buffer wallet back to the bundle (contract 9.6)
+
         :param token_slug: The token slug
         :param amount: Amount to withdraw
-        :param source_wallet: Source wallet (optional, will query if not provided)
+        :param source_wallet: The buffer wallet to withdraw from (default: Balance(type: buffer))
         :return: Response from the mutation
         """
         from ..mutation import MutationWithdrawBufferToken
-        
-        # Get source wallet if not provided - note this should be a buffer wallet
+
         if source_wallet is None:
-            # This would need a query for buffer wallets - using regular balance for now
-            source_wallet = self.query_balance(token_slug, self.bundle())
-            if not source_wallet or source_wallet.balance < amount:
-                raise Exception(f"Insufficient buffer balance for token {token_slug}")
-        
-        # Remainder wallet is the source wallet itself for buffer operations
-        remainder_wallet = source_wallet
-        
-        # Build the molecule
+            source_wallet = self.query_balance(token_slug, self.bundle(), 'buffer').payload()
+        if source_wallet is None or decimal.cmp(strings.number(source_wallet.balance), amount) < 0:
+            raise BalanceInsufficientException(f'Insufficient buffer balance for token {token_slug}')
+
+        # The remainder is a FRESH position: the source's own key is consumed by this signature.
         molecule = self.create_molecule(
             source_wallet=source_wallet,
-            remainder_wallet=remainder_wallet
+            remainder_wallet=source_wallet.create_remainder(self.secret())
         )
-        
+
         query = self.create_molecule_mutation(MutationWithdrawBufferToken, molecule)
-        
-        # Create recipients dict with user's bundle
-        recipients = {self.bundle(): amount}
-        query.fill_molecule(recipients)
-        
+        query.fill_molecule({self.bundle(): amount})
+
         return query.execute()
     
     def burn_tokens(self, token_slug: str, amount: float, source_wallet: Wallet = None, units: list = None):
@@ -757,58 +754,77 @@ class KnishIOClient(object):
         query = self.create_molecule_mutation(MutationProposeMolecule, molecule)
         return query.execute()
     
-    def replenish_token(self, token_slug: str, amount: float, 
-                        metas: list = None, source_wallet: Wallet = None):
+    def replenish_token(self, token_slug: str, amount: int | float | None = None, units: list = None):
         """
-        Replenishes (mints new) tokens
-        
+        Mints more supply of an existing token (contract 9.1): a C atom signed by the identity's
+        USER wallet, like create_token, crediting the identity's wallet for the token (a new one
+        when it has none), then the ContinuID atom. The validator accepts it only from the token's
+        creator, for supply 'infinite' or 'replenishable'.
+
         :param token_slug: The token to replenish
-        :param amount: Amount of tokens to create
-        :param metas: Metadata for the replenish operation
-        :param source_wallet: Source wallet (optional)
+        :param amount: Amount to mint (fungible); omit, or pass len(units), for stackable tokens
+        :param units: The new token units (stackable / non-fungible), e.g. [['R1', 'R1', {}]]
         :return: Response from the mutation
         """
-        if amount <= 0:
-            raise NegativeMeaningException('Amount to replenish must be positive')
-        
-        # Get source wallet if not provided
-        if source_wallet is None:
-            source_wallet = self.query_balance(token_slug).data()
-            if not source_wallet:
-                # Create new wallet if it doesn't exist
-                source_wallet = Wallet(secret=self.secret(), token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set())
+        credited_wallet = self.query_balance(token_slug).payload()
 
-        # Create remainder wallet
-        remainder_wallet = Wallet(
-            secret=self.secret(),
-            token=source_wallet.token,
-            batch_id=source_wallet.batchId,
-            characters=source_wallet.characters,
-            mlkem_param_set=self.get_mlkem_parameter_set()
-        )
-        
-        # Create molecule
-        molecule = self.create_molecule(
-            source_wallet=source_wallet,
-            remainder_wallet=remainder_wallet
-        )
-        
-        # Prepare metadata
-        if metas is None:
-            metas = {
-                'action': 'add',
-                'address': source_wallet.address,
-                'position': source_wallet.position
-            }
-            if source_wallet.batchId:
-                metas['batchId'] = source_wallet.batchId
-        
-        # Replenish the tokens
-        molecule.replenishing_tokens(amount, token_slug, metas)
+        if not units:
+            if amount is None or decimal.cmp(amount, 0) <= 0:
+                raise NegativeMeaningException('Amount to replenish must be positive')
+            if credited_wallet is not None and credited_wallet.tokenUnits:
+                raise StackableUnitAmountException('Replenishing a stackable token requires token units')
+
+        if credited_wallet is None:
+            credited_wallet = Wallet.create(
+                secret=self.secret(), token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set()
+            )
+
+        molecule = self.create_molecule()
+        molecule.replenishing_tokens(amount, token_slug, credited_wallet, units)
         molecule.sign()
         molecule.check()
-        
-        # Create and execute mutation
+
+        query = self.create_molecule_mutation(MutationProposeMolecule, molecule)
+        return query.execute()
+
+    def fuse_token(self, bundle_hash: str, token_slug: str, new_token_unit, fused_token_unit_ids: list,
+                   source_wallet: Wallet = None):
+        """
+        Fuses two or more units of a stackable token into ONE new unit delivered to
+        ``bundle_hash`` (contract 9.2). The fused units are absorbed: all but the last go to the
+        burn bundle, the last is replaced by the new unit, whose ``fusedTokenUnits`` meta lists
+        them. The kept units stay with the sender on a remainder wallet.
+
+        :param bundle_hash: Recipient bundle of the new unit (the own bundle is allowed)
+        :param token_slug: The stackable token
+        :param new_token_unit: The new unit id (str) or a TokenUnit
+        :param fused_token_unit_ids: The unit ids to fuse (at least two)
+        :param source_wallet: The wallet holding the units (default: the Balance query)
+        :return: Response from the mutation
+        """
+        if source_wallet is None:
+            source_wallet = self.query_balance(token_slug).payload()
+        if source_wallet is None or not source_wallet.tokenUnits:
+            raise TransferBalanceException('Source wallet is missing or has no token units.')
+
+        if bundle_hash == self.bundle():
+            recipient_wallet = Wallet.create(
+                secret=self.secret(), token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set()
+            )
+        else:
+            recipient_wallet = Wallet.create(
+                bundle=bundle_hash, token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set()
+            )
+        recipient_wallet.init_batch_id(source_wallet)
+
+        molecule = self.create_molecule(
+            source_wallet=source_wallet,
+            remainder_wallet=source_wallet.create_remainder(self.secret())
+        )
+        molecule.init_token_fusion(fused_token_unit_ids, recipient_wallet, new_token_unit)
+        molecule.sign()
+        molecule.check()
+
         query = self.create_molecule_mutation(MutationProposeMolecule, molecule)
         return query.execute()
     
@@ -996,8 +1012,9 @@ class KnishIOClient(object):
                 policy=config.policy
             )
             
-            # Sign molecule
+            # Sign, then refuse locally what the validator would reject (contract 9.7)
             molecule.sign()
+            molecule.check()
             
             # Create mutation and execute
             mutation = self.create_molecule_mutation(MutationCreateMeta, molecule)

@@ -6,7 +6,7 @@ from .Query import Query
 class QueryBalance(Query):
     def __init__(self, knish_io_client: 'KnishIOClient', query: str = None):
         super(QueryBalance, self).__init__(knish_io_client, query)
-        self.default_query = 'query( $address: String, $bundleHash: String, $token: String, $position: String ) { Balance( address: $address, bundleHash: $bundleHash, token: $token, position: $position ) @fields }'
+        self.default_query = 'query( $address: String, $bundleHash: String, $type: String, $token: String, $position: String ) { Balance( address: $address, bundleHash: $bundleHash, type: $type, token: $token, position: $position ) @fields }'
         self.fields = {
             'address': None,
             'bundleHash': None,

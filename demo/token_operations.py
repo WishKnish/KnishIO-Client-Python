@@ -10,7 +10,6 @@ Perfect for: Developers building token-based applications.
 
 import sys
 import os
-import time
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -184,12 +183,7 @@ def main():
                 replenish_amount = 5.0
                 replenish_response = client.replenish_token(
                     token_slug=token_slug,
-                    amount=replenish_amount,
-                    metas={
-                        'action': 'demo_replenish',
-                        'reason': 'Python SDK demonstration',
-                        'timestamp': str(int(time.time()))
-                    }
+                    amount=replenish_amount
                 )
                 
                 if replenish_response and replenish_response.success():

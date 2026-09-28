@@ -13,6 +13,7 @@ from .AtomMeta import AtomMeta
 from .Rule import Rule
 from .Meta import Meta
 from .Wallet import Wallet
+from .TokenUnit import TokenUnit
 
 
 class Molecule(MoleculeStructure):
@@ -379,37 +380,194 @@ class Molecule(MoleculeStructure):
         ))
         return self
 
-    def replenishing_tokens(self, value, token,
-                            metas: List[Dict[str, str | int | float]] | Dict[str, str | int | float]):
-        """
-        :param value:
-        :param token: str
-        :param metas: List[Dict[str, str | int | float]] | Dict[str, str | int | float]
-        :return:
-        """
-        aggregate_meta = Meta.aggregate_meta(Meta.normalize_meta(metas))
-        aggregate_meta.update({"action": "add"})
+    @classmethod
+    def token_units_data(cls, units: List) -> List:
+        """Normalise a unit list (TokenUnit, [id, name, metas] triple or bare id) to triples."""
+        normalised = []
+        for unit in units or []:
+            if isinstance(unit, TokenUnit):
+                normalised.append(unit.to_data())
+            elif isinstance(unit, (list, tuple)):
+                normalised.append(TokenUnit.create_from_db(list(unit)).to_data())
+            else:
+                normalised.append([unit, unit, {}])
+        return normalised
 
-        if all(key not in aggregate_meta for key in ("address", "position", "batchId")):
-            raise MetaMissingException('No or not defined address or position or batchId in meta')
+    def replenishing_tokens(self, value, token: str, recipient_wallet: Wallet, units: List = None) -> 'Molecule':
+        """
+        Contract 9.1: mint more supply of an EXISTING token with a C atom signed by the source
+        (USER) wallet, crediting ``recipient_wallet`` (the identity's wallet for the token), then
+        the ContinuID I atom. Stackable / non-fungible replenishes carry the new units and their
+        count is the value.
 
-        self.add_atom(
+        :param value: int | float | None - the amount (fungible); None or len(units) with units
+        :param token: str - the token slug
+        :param recipient_wallet: Wallet - the credited wallet
+        :param units: list - the new token units (triples, TokenUnit objects or ids)
+        :return: self
+        """
+        units_data = Molecule.token_units_data(units)
+        if units_data:
+            if value is not None and decimal.cmp(float(value), float(len(units_data))) != 0:
+                raise StackableUnitAmountException(
+                    'Replenish amount must be omitted or equal the number of token units'
+                )
+            value = len(units_data)
+        if value is None or decimal.cmp(float(value), 0.0) <= 0:
+            raise NegativeMeaningException('Amount to replenish must be positive')
+
+        self.molecularHash = None
+
+        metas = {
+            'action': 'add',
+            'address': recipient_wallet.address,
+            'position': recipient_wallet.position,
+            'pubkey': recipient_wallet.pubkey,
+        }
+        if recipient_wallet.batchId:
+            metas['batchId'] = recipient_wallet.batchId
+        if units_data:
+            metas['tokenUnits'] = strings.js_json_stringify(units_data)
+
+        self.atoms.append(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
-                "C",
+                'C',
                 self.sourceWallet.token,
                 value,
-                self.sourceWallet.batchId,
-                "token",
+                recipient_wallet.batchId,
+                'token',
                 token,
-                self.final_metas(self.context_metas(aggregate_meta)),
+                metas,
                 None,
                 self.generate_index()
             )
         )
 
         self.add_continue_id_atom()
+        self.atoms = Atom.sort_atoms(self.atoms)
+
+        return self
+
+    def init_token_fusion(self, fused_token_unit_ids: List[str], recipient_wallet: Wallet,
+                          new_token_unit: 'str | TokenUnit') -> 'Molecule':
+        """
+        Contract 9.2: fuse M >= 2 units of the source's stackable token into ONE new unit N
+        delivered to ``recipient_wallet``. Atoms: source V (-B, the fused units in source order),
+        burn V (+(M-1), the fused units but the last, caller order), F (+1, [N] with
+        fusedTokenUnits = the fused triples in caller order), remainder V (+(B-M), the kept units).
+        No ContinuID atom: the molecule is signed by the source token wallet, like a transfer.
+
+        :param fused_token_unit_ids: list[str] - the unit ids to fuse, caller order
+        :param recipient_wallet: Wallet - receives N
+        :param new_token_unit: str | TokenUnit - N (a string id also becomes its name)
+        :return: self
+        """
+        if len(fused_token_unit_ids) < 2:
+            raise TransferBalanceException('Token fusion requires at least two token units')
+
+        source_units = list(self.sourceWallet.tokenUnits)
+        source_by_id = {unit.id: unit for unit in source_units}
+        for unit_id in fused_token_unit_ids:
+            if unit_id not in source_by_id:
+                raise TransferBalanceException(
+                    f'Fused token unit ID = {unit_id} not found in the source wallet.'
+                )
+
+        if isinstance(new_token_unit, str):
+            new_token_unit = TokenUnit(new_token_unit, new_token_unit, {})
+        if new_token_unit.id in source_by_id:
+            raise TransferBalanceException('Token fusion unit id already exists in the source wallet')
+
+        balance = float(self.sourceWallet.balance)
+        fused_count = len(fused_token_unit_ids)
+        if decimal.cmp(balance, float(fused_count)) < 0:
+            raise BalanceInsufficientException()
+
+        fused_units = [source_by_id[unit_id] for unit_id in fused_token_unit_ids]
+
+        burn_wallet = Wallet(
+            bundle='0000000000000000000000000000000000000000000000000000000000000000',
+            token=self.sourceWallet.token,
+            mlkem_param_set=self.mlkem_param_set
+        )
+        burn_wallet.init_batch_id(self.sourceWallet)
+        burn_wallet.tokenUnits = fused_units[:-1]
+
+        new_token_unit.metas = {
+            **new_token_unit.metas,
+            'fusedTokenUnits': [unit.to_data() for unit in fused_units],
+        }
+        recipient_wallet.tokenUnits = [new_token_unit]
+
+        # SENT (source order) on the source atom; KEPT (source order) on the remainder atom
+        self.sourceWallet.tokenUnits = [unit for unit in source_units if unit.id in fused_token_unit_ids]
+        self.remainderWallet.tokenUnits = [unit for unit in source_units if unit.id not in fused_token_unit_ids]
+
+        self.molecularHash = None
+
+        self.atoms.append(
+            Atom(
+                self.sourceWallet.position,
+                self.sourceWallet.address,
+                'V',
+                self.sourceWallet.token,
+                -balance,
+                self.sourceWallet.batchId,
+                None,
+                None,
+                AtomMeta({}).set_atom_wallet(self.sourceWallet).get(),
+                None,
+                self.generate_index()
+            )
+        )
+        self.atoms.append(
+            Atom(
+                burn_wallet.position,
+                burn_wallet.address,
+                'V',
+                self.sourceWallet.token,
+                fused_count - 1,
+                burn_wallet.batchId,
+                'walletBundle',
+                burn_wallet.bundle,
+                AtomMeta({}).set_atom_wallet(burn_wallet).get(),
+                None,
+                self.generate_index()
+            )
+        )
+        self.atoms.append(
+            Atom(
+                recipient_wallet.position,
+                recipient_wallet.address,
+                'F',
+                self.sourceWallet.token,
+                1,
+                recipient_wallet.batchId,
+                'walletBundle',
+                recipient_wallet.bundle,
+                AtomMeta({}).set_atom_wallet(recipient_wallet).get(),
+                None,
+                self.generate_index()
+            )
+        )
+        self.atoms.append(
+            Atom(
+                self.remainderWallet.position,
+                self.remainderWallet.address,
+                'V',
+                self.sourceWallet.token,
+                balance - fused_count,
+                self.remainderWallet.batchId,
+                'walletBundle',
+                self.sourceWallet.bundle,
+                AtomMeta({}).set_atom_wallet(self.remainderWallet).get(),
+                None,
+                self.generate_index()
+            )
+        )
+
         self.atoms = Atom.sort_atoms(self.atoms)
 
         return self
@@ -1051,26 +1209,22 @@ class Molecule(MoleculeStructure):
     
     def init_withdraw_buffer(self, recipients: dict) -> 'Molecule':
         """
-        Initialize molecule for withdrawing tokens from buffer
-        
+        Contract 9.6: withdraw from the buffer wallet S (the molecule's source). Atoms: B S
+        (-S.balance), one addressless V (+amount) per recipient bundle (a fresh batch id only when S
+        has one), and the B remainder (+(S.balance - amount)) on the molecule's remainder wallet,
+        which must be S.create_remainder(secret): a FRESH position, never S's own (a credit behind
+        the consumed signing key is stranded; validator 0.6.1 rejects it). No ContinuID atom.
+
         :param recipients: Dict of recipient_bundle: amount mappings
         :return: self
         """
-        from ..exception import BalanceInsufficientException
-        
-        # Calculate total amount
         amount = sum(recipients.values()) if recipients else 0
-        
-        if self.sourceWallet.balance - amount < 0:
+
+        if decimal.cmp(float(self.sourceWallet.balance), float(amount)) < 0:
             raise BalanceInsufficientException()
-        
-        # Remove tokens from source buffer (debit the FULL balance for UTXO conservation, matching the
-        # canonical JS/PHP/TS reference; the change is routed to the remainder B atom below so the V+B
-        # atoms sum to 0 — conserves for PARTIAL withdraws too). The atom args were ALSO in the wrong
-        # order (an old/scrambled signature: value/metaType swapped) and used a non-existent .bundleHash;
-        # corrected to the canonical Atom order + -full-balance, mirroring init_deposit_buffer.
-        # Atom args: position, wallet_address, isotope, token, value, batch_id, meta_type, meta_id, meta,
-        # ots_fragment, index.
+
+        self.molecularHash = None
+
         self.atoms.append(
             Atom(
                 self.sourceWallet.position,
@@ -1081,13 +1235,12 @@ class Molecule(MoleculeStructure):
                 self.sourceWallet.batchId,
                 'walletBundle',
                 self.sourceWallet.bundle,
-                self.final_metas({}, self.sourceWallet),
+                AtomMeta({}).set_atom_wallet(self.sourceWallet).get(),
                 None,
                 self.generate_index()
             )
         )
 
-        # Add tokens to recipients (shadow V atoms: no position/address, no wallet meta)
         for recipient_bundle, recipient_amount in (recipients or {}).items():
             self.atoms.append(
                 Atom(
@@ -1096,7 +1249,7 @@ class Molecule(MoleculeStructure):
                     'V',
                     self.sourceWallet.token,
                     recipient_amount,
-                    self.sourceWallet.batchId,
+                    crypto.generate_batch_id() if self.sourceWallet.batchId else None,
                     'walletBundle',
                     recipient_bundle,
                     None,
@@ -1105,7 +1258,6 @@ class Molecule(MoleculeStructure):
                 )
             )
 
-        # Add remainder to buffer (the change from the full-balance debit; metaId -> remainder bundle)
         self.atoms.append(
             Atom(
                 self.remainderWallet.position,
@@ -1116,7 +1268,7 @@ class Molecule(MoleculeStructure):
                 self.remainderWallet.batchId,
                 'walletBundle',
                 self.remainderWallet.bundle,
-                self.final_metas({}, self.remainderWallet),
+                AtomMeta({}).set_atom_wallet(self.remainderWallet).get(),
                 None,
                 self.generate_index()
             )
@@ -1232,14 +1384,14 @@ class Molecule(MoleculeStructure):
         """
         return self.burning_tokens(amount, wallet_bundle)
     
-    def replenish_token(self, amount: float, token: str, 
-                        metas: List[Dict[str, str | int | float]] | Dict[str, str | int | float]):
+    def replenish_token(self, amount, token: str, recipient_wallet: Wallet, units: List = None) -> 'Molecule':
         """
         Wrapper method for replenishing_tokens to match JavaScript naming convention
-        
-        :param amount: Amount to replenish
+
+        :param amount: Amount to replenish (None or len(units) for stackable / non-fungible)
         :param token: Token slug
-        :param metas: Metadata for the operation
+        :param recipient_wallet: The credited wallet
+        :param units: The new token units (stackable / non-fungible)
         :return: self for chaining
         """
-        return self.replenishing_tokens(amount, token, metas)
+        return self.replenishing_tokens(amount, token, recipient_wallet, units)

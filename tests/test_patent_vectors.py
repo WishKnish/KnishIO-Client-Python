@@ -31,6 +31,8 @@ from knishioclient.models.Atom import Atom
 from knishioclient.models.Wallet import Wallet
 from knishioclient.models.Molecule import Molecule
 from knishioclient.models.MoleculeStructure import MoleculeStructure
+from knishioclient.exception import TransferBalanceException
+from tests.stub_ledger import POINTER_POSITION, StubLedger, meta_dict, meta_keys, wallet_row
 
 
 # ---------------------------------------------------------------------------
@@ -596,6 +598,144 @@ class TestBufferDepositConservation(unittest.TestCase):
                 self.assertEqual(tv["expectedSourceValue"], b_values[0], "source B")
                 self.assertEqual(tv["expectedRecipientValue"], v_value, "recipient V")
                 self.assertEqual(tv["expectedRemainderValue"], b_values[1], "remainder B")
+
+
+# ---------------------------------------------------------------------------
+# Phase B vectors (contracts 9.1, 9.2, 9.6), built through the client's own operations
+# against an offline ledger stub, so the tests cover wallet resolution as well as the builders.
+# ---------------------------------------------------------------------------
+
+ZERO_BUNDLE = "0" * 64
+
+
+def _unit_ids(atom):
+    units = meta_dict(atom).get("tokenUnits")
+    return None if units is None else [unit[0] for unit in json.loads(units)]
+
+
+class TestTokenReplenishVectors(unittest.TestCase):
+    """replenish_token emits C(action=add) + I, signed by the USER wallet at the ContinuID
+    pointer (contract 9.1). Pre-fix Python signed the C atom from the token wallet (resolved as a
+    raw dict, so the call raised) and put the signer's pubkey/characters into the metas."""
+
+    def test_token_replenish(self):
+        for tv in VECTORS["vectors"]["token_replenish"]["tests"]:
+            with self.subTest(name=tv["name"]):
+                ledger = StubLedger()
+                client = ledger.client()
+                client.replenish_token(tv["token"], tv["amount"], tv["units"] or None)
+
+                self.assertEqual(len(ledger.proposals), 1)
+                molecule = ledger.proposals[0]
+                self.assertTrue(molecule.check())
+                self.assertEqual([atom.isotope for atom in molecule.atoms], tv["expectedIsotopes"])
+
+                c_atom = molecule.atoms[0]
+                self.assertEqual(c_atom.token, "USER")
+                self.assertEqual(c_atom.position, POINTER_POSITION)
+                self.assertEqual(c_atom.value, tv["expectedCValue"])
+                self.assertEqual(c_atom.metaType, tv["expectedMetaType"])
+                self.assertEqual(c_atom.metaId, tv["expectedMetaId"])
+
+                metas = meta_dict(c_atom)
+                self.assertEqual(meta_keys(c_atom)[:4], ["action", "address", "position", "pubkey"])
+                self.assertEqual(metas["action"], tv["expectedAction"])
+                self.assertEqual(_unit_ids(c_atom), tv["expectedTokenUnitIds"])
+
+
+class TestStackableFusionVectors(unittest.TestCase):
+    """fuse_token emits V(S,-B) V(burn,+(M-1)) F(+1,[N]) V(remainder,+(B-M)) with no I atom
+    (contract 9.2). Pre-fix Python had no fusion at all."""
+
+    TOKEN = "FUSETOK"
+
+    def test_stackable_fusion_conservation(self):
+        for tv in VECTORS["vectors"]["stackable_fusion_conservation"]["tests"]:
+            with self.subTest(name=tv["name"]):
+                ledger = StubLedger()
+                client = ledger.client()
+                source = Wallet(secret=ledger.secret, token=self.TOKEN)
+                source.batchId = crypto.generate_batch_id()
+                ledger.set_balance(self.TOKEN, wallet_row(source, len(tv["sourceUnits"]), tv["sourceUnits"]))
+
+                if tv.get("mustReject"):
+                    with self.assertRaises(TransferBalanceException) as raised:
+                        client.fuse_token(ledger.bundle, self.TOKEN, tv["newUnitId"], tv["fuse"])
+                    self.assertIn(tv["expectedErrorContains"], str(raised.exception))
+                    self.assertEqual(ledger.proposals, [])
+                    continue
+
+                client.fuse_token(ledger.bundle, self.TOKEN, tv["newUnitId"], tv["fuse"])
+                self.assertEqual(len(ledger.proposals), 1)
+                molecule = ledger.proposals[0]
+                self.assertTrue(molecule.check())
+                self.assertEqual([atom.isotope for atom in molecule.atoms], tv["expectedIsotopes"])
+
+                source_atom, burn_atom, fusion_atom, remainder_atom = molecule.atoms
+                self.assertEqual(source_atom.position, source.position)
+                self.assertEqual(source_atom.value, tv["expectedSourceValue"])
+                self.assertEqual(_unit_ids(source_atom), tv["expectedSourceUnitIds"])
+
+                self.assertEqual(burn_atom.value, tv["expectedBurnValue"])
+                self.assertEqual((burn_atom.metaType, burn_atom.metaId), ("walletBundle", ZERO_BUNDLE))
+                self.assertEqual(_unit_ids(burn_atom), tv["expectedBurnUnitIds"])
+
+                self.assertEqual(fusion_atom.value, tv["expectedFusionValue"])
+                self.assertEqual((fusion_atom.metaType, fusion_atom.metaId), ("walletBundle", ledger.bundle))
+                (new_unit,) = json.loads(meta_dict(fusion_atom)["tokenUnits"])
+                self.assertEqual(new_unit[:2], [tv["newUnitId"], tv["newUnitId"]])
+                self.assertEqual([unit[0] for unit in new_unit[2]["fusedTokenUnits"]], tv["expectedFusedTokenUnitIds"])
+
+                self.assertEqual(remainder_atom.value, tv["expectedRemainderValue"])
+                self.assertEqual(remainder_atom.metaId, ledger.bundle)
+                self.assertNotEqual(remainder_atom.position, source.position)
+                self.assertEqual(_unit_ids(remainder_atom) or [], tv["expectedRemainderUnitIds"])
+
+                self.assertEqual(str(sum(int(atom.value) for atom in molecule.atoms)), tv["expectedSum"])
+
+                # A batched source: the remainder keeps its batch, burn and F carry fresh ones.
+                self.assertEqual(remainder_atom.batchId, source.batchId)
+                for atom in (burn_atom, fusion_atom):
+                    self.assertIsNotNone(atom.batchId)
+                    self.assertNotEqual(atom.batchId, source.batchId)
+
+
+class TestBufferWithdrawFreshRemainder(unittest.TestCase):
+    """withdraw_buffer_token debits the BUFFER wallet (Balance type buffer) and puts the remainder
+    at a fresh position (contract 9.6). Pre-fix Python withdrew from the regular balance (resolved
+    as a raw response, so the call raised) with the remainder at the source's own position."""
+
+    TOKEN = "BUFTOK"
+
+    def test_buffer_withdraw_fresh_remainder(self):
+        for tv in VECTORS["vectors"]["buffer_withdraw_fresh_remainder"]["tests"]:
+            with self.subTest(name=tv["name"]):
+                ledger = StubLedger()
+                client = ledger.client()
+                buffer_wallet = Wallet(secret=ledger.secret, token=self.TOKEN)
+                ledger.set_balance(self.TOKEN, wallet_row(buffer_wallet, tv["sourceBalance"]), "buffer")
+
+                client.withdraw_buffer_token(self.TOKEN, tv["amount"])
+
+                self.assertEqual(ledger.balance_requests[-1].get("type"), "buffer")
+                self.assertEqual(len(ledger.proposals), 1)
+                molecule = ledger.proposals[0]
+                self.assertTrue(molecule.check())
+                self.assertEqual([atom.isotope for atom in molecule.atoms], tv["expectedIsotopes"])
+
+                source_atom, recipient_atom, remainder_atom = molecule.atoms
+                self.assertEqual(source_atom.position, buffer_wallet.position)
+                self.assertEqual(source_atom.value, tv["expectedSourceValue"])
+                self.assertEqual(recipient_atom.value, tv["expectedRecipientValue"])
+                self.assertIsNone(recipient_atom.walletAddress)
+                self.assertEqual((recipient_atom.metaType, recipient_atom.metaId), ("walletBundle", ledger.bundle))
+                self.assertEqual(remainder_atom.value, tv["expectedRemainderValue"])
+                self.assertEqual(remainder_atom.metaId, ledger.bundle)
+                self.assertEqual(
+                    remainder_atom.position != source_atom.position,
+                    tv["expectedRemainderPositionDistinctFromSource"],
+                )
+                self.assertEqual(str(sum(int(atom.value) for atom in molecule.atoms)), tv["expectedSum"])
 
 
 # ===========================================================================
