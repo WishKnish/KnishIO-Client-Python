@@ -16,6 +16,47 @@ history. Entries at and below `0.8.1` are reconstructed from commit messages
 rather than written at release time; where the history does not substantiate a
 detail, the entry says so instead of guessing.
 
+## [1.3.1] — 2026-09-28
+
+### Changed
+
+- `replenish_token(token_slug, amount=None, units=None)` replaces
+  `replenish_token(token_slug, amount, metas=None, source_wallet=None)`, and
+  `Molecule.replenishing_tokens()` / `Molecule.replenish_token()` now take the credited wallet and
+  the new units instead of a metas dict. The removed parameters belonged to a path that raised
+  before sending (it read the balance as a raw dict), so no working call is affected.
+
+### Fixed
+
+- `replenish_token()` builds the molecule validator 0.6.0 accepts: a C atom with `action: add`,
+  signed by the identity's `USER` wallet like `create_token()`, whose metas are the credited
+  wallet's `address`, `position`, `pubkey`, its `batchId` when it has one, and the new
+  `tokenUnits` for stackable tokens, followed by the ContinuID atom. The credited wallet is the
+  identity's wallet for the token from the Balance query, or a new one. It used to sign from the
+  token wallet with the signer's own `pubkey`/`characters` metas, which the SDK's own check
+  rejected.
+- `fuse_token()` is new: it fuses two or more units of a stackable token into one unit for a
+  bundle, with the conserving `V`(source) `V`(burn) `F` `V`(remainder) molecule of the shared
+  `stackable_fusion_conservation` vector. The Python SDK had no fusion.
+- `withdraw_buffer_token()` withdraws from the buffer wallet (`Balance(type: "buffer")`, which
+  `query_balance(..., wallet_type='buffer')` now sends) and puts the remainder at a fresh
+  position. It read the regular balance as a raw response (so it raised) and would have put the
+  remainder at the source's own, already-signed position, which validator 0.6.1 rejects. The
+  recipient atom carries a new batch id only when the buffer wallet has one, as JS does, and the
+  buffer atoms carry only the wallets' `tokenUnits` meta, as JS does.
+- `deposit_buffer_token()` reads the regular wallet from the Balance response; it raised
+  `AttributeError` on the response object.
+- `query_wallets()` works: it called a missing `get_wallets()`, and `QueryWalletList` sent
+  arguments and a field the validator's `Wallet` query does not have. It now also returns each
+  wallet's `tokenUnits`.
+- `create_meta_enhanced()` runs `check()` on the signed molecule before sending it, like every
+  other high-level operation, so a molecule the validator would reject (for example a
+  `USER`-signed one without its ContinuID atom) is refused locally and nothing is sent. The raw
+  `MutationProposeMolecule` path still sends a caller-built molecule unchecked.
+- Pinned by the `token_replenish`, `stackable_fusion_conservation` and
+  `buffer_withdraw_fresh_remainder` vectors in `tests/test_patent_vectors.py` and by
+  `tests/test_phaseb_operations.py`.
+
 ## [1.3.0] — 2026-09-26
 
 ### Changed
@@ -405,7 +446,8 @@ published) fixed policy ContinuID signing (F-3) by signing the R-atom from the
 established source wallet. See the git tag history and the
 [PyPI release list](https://pypi.org/project/knishioclient/#history).
 
-[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.3.0...HEAD
+[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.3.1...HEAD
+[1.3.1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.3.1
 [1.3.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.3.0
 [1.2.1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.2.1
 [1.2.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.2.0
