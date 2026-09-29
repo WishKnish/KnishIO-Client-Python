@@ -38,7 +38,7 @@ from ..mutation import (
     MutationCreateWallet,
     MutationCreateMeta
 )
-from ..models import Wallet, Molecule
+from ..models import Wallet, Molecule, TokenUnit
 from ..libraries.array import get_signed_atom
 from ..libraries.crypto import generate_bundle_hash
 from ..libraries import decimal, strings, crypto
@@ -426,14 +426,22 @@ class KnishIOClient(object):
         if fungibility == 'stackable':
             recipient_wallet.batchId = crypto.generate_batch_id()
         # Stackable / non-fungible: the token units ARE the supply (mirror JS createToken):
-        # amount = unit count, splittable + decimals=0, tokenUnits meta = JSON of the units.
+        # amount = unit count, splittable + decimals=0, tokenUnits meta = the units as compact
+        # [id, name, metas] triples (a bare id becomes [id, id, {}]), the form every other unit
+        # operation sends. A bare id string would be stored with a NULL name and metas.
         if units and fungibility in ('stackable', 'nonfungible', 'non-fungible'):
             # Meta values must be STRINGS on the wire (the validator's MetaItemInput.value is a
             # GraphQL String; Python's Coder doesn't stringify scalars). Ints were rejected
             # ('expected type "String"'). Mirror C++/JS which send "1"/"0".
             data_metas['splittable'] = '1'
             data_metas['decimals'] = '0'
-            data_metas['tokenUnits'] = strings.js_json_stringify(units)
+            token_units = [
+                unit if isinstance(unit, TokenUnit)
+                else TokenUnit(unit, unit, {}) if isinstance(unit, str)
+                else TokenUnit(unit[0], unit[1] if len(unit) > 1 else unit[0], unit[2] if len(unit) > 2 else {})
+                for unit in units
+            ]
+            data_metas['tokenUnits'] = strings.js_json_stringify([unit.to_data() for unit in token_units])
             initial_amount = len(units)
 
         query = self.create_molecule_mutation(MutationCreateToken)

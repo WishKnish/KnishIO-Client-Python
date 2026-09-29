@@ -67,18 +67,21 @@ class TokenUnitsJsonTest(unittest.TestCase):
             self.assertEqual(meta['tokenUnits'], token_units, f'V atom at position {digit}')
             self.assertEqual(Atom.hash_atoms([atom]), digest, f'V atom at position {digit}')
 
-    def test_create_token_sends_compact_units_json(self):
+    def test_create_token_sends_units_as_compact_triples(self):
         client = KnishIOClient('http://offline.invalid/graphql')
         mutation = mock.Mock()
         with mock.patch.object(KnishIOClient, 'create_molecule_mutation', return_value=mutation), \
                 mock.patch.object(KnishIOClient, 'secret', return_value=crypto.generate_secret('TESTSEED')):
             client.create_token('STACK1', 0, {'fungibility': 'stackable', 'supply': 'limited', 'name': 'Stack'},
-                                units=[['unit1', 'Unit One', {'colour': 'red'}], ['unit2', 'Unit Two', {}]])
+                                units=[['unit1', 'Unit One', {'colour': 'red'}], TokenUnit('unit2', 'Unit Two'),
+                                       'unit3', ('unit4',), ['unit5', 'Unit Five', None]])
 
         _wallet, amount, data_metas = mutation.fill_molecule.call_args.args
-        # JSON.stringify of the same units.
-        self.assertEqual(data_metas['tokenUnits'], '[["unit1","Unit One",{"colour":"red"}],["unit2","Unit Two",{}]]')
-        self.assertEqual(amount, 2)
+        # Caller order kept; a bare or id-only unit takes its id as name; absent metas -> {}.
+        self.assertEqual(data_metas['tokenUnits'],
+                         '[["unit1","Unit One",{"colour":"red"}],["unit2","Unit Two",{}],["unit3","unit3",{}],'
+                         '["unit4","unit4",{}],["unit5","Unit Five",{}]]')
+        self.assertEqual(amount, 5)
 
 
 if __name__ == '__main__':

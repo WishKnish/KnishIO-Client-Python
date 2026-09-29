@@ -643,6 +643,38 @@ class TestTokenReplenishVectors(unittest.TestCase):
                 self.assertEqual(_unit_ids(c_atom), tv["expectedTokenUnitIds"])
 
 
+class TestCreateTokenUnitsVectors(unittest.TestCase):
+    """create_token with units sends the C atom meta tokenUnits as compact [id, name, metas]
+    triples; a bare id is sent as [id, id, {}]. Pre-fix Python sent the ids as bare strings, which
+    the validator stores with a NULL name and metas."""
+
+    def _create(self, token, units):
+        ledger = StubLedger()
+        client = ledger.client()
+        client.create_token(token, None, {"fungibility": "stackable", "supply": "limited"}, units)
+
+        self.assertEqual(len(ledger.proposals), 1)
+        molecule = ledger.proposals[0]
+        self.assertTrue(molecule.check())
+        (c_atom,) = [atom for atom in molecule.atoms if atom.isotope == "C"]
+        return c_atom
+
+    def test_create_token_units(self):
+        for tv in VECTORS["vectors"]["create_token_units"]["tests"]:
+            with self.subTest(name=tv["name"]):
+                c_atom = self._create(tv["token"], tv["units"])
+                self.assertEqual(meta_dict(c_atom)["tokenUnits"], tv["expectedTokenUnits"])
+                self.assertEqual(c_atom.value, tv["expectedCValue"])
+                self.assertEqual(c_atom.metaType, tv["expectedMetaType"])
+                self.assertEqual(c_atom.metaId, tv["expectedMetaId"])
+                self.assertEqual(_unit_ids(c_atom), tv["expectedTokenUnitIds"])
+
+    def test_create_token_keeps_triple_name_and_metas(self):
+        c_atom = self._create("CRTTRI", [["X1", "Name X", {"k": "v"}]])
+        self.assertEqual(meta_dict(c_atom)["tokenUnits"], '[["X1","Name X",{"k":"v"}]]')
+        self.assertEqual(c_atom.value, "1")
+
+
 class TestStackableFusionVectors(unittest.TestCase):
     """fuse_token emits V(S,-B) V(burn,+(M-1)) F(+1,[N]) V(remainder,+(B-M)) with no I atom
     (contract 9.2). Pre-fix Python had no fusion at all."""
