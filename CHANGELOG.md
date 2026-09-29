@@ -16,6 +16,14 @@ history. Entries at and below `0.8.1` are reconstructed from commit messages
 rather than written at release time; where the history does not substantiate a
 detail, the entry says so instead of guessing.
 
+## [1.3.2] — 2026-09-29
+
+### Fixed
+
+- `create_token()` sends `tokenUnits` as `[id, name, metas]` triples (a bare id becomes
+  `[id, id, {}]`), the form every other unit operation already uses; pinned by the
+  `create_token_units` vector.
+
 ## [1.3.1] — 2026-09-28
 
 ### Changed
@@ -446,7 +454,8 @@ published) fixed policy ContinuID signing (F-3) by signing the R-atom from the
 established source wallet. See the git tag history and the
 [PyPI release list](https://pypi.org/project/knishioclient/#history).
 
-[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.3.1...HEAD
+[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.3.2...HEAD
+[1.3.2]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.3.2
 [1.3.1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.3.1
 [1.3.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.3.0
 [1.2.1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.2.1
