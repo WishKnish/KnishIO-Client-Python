@@ -129,3 +129,5 @@ __pycache__/
 
 # Node deps for the bin/ ML-KEM bridge (lockfile is committed; deps are not)
 bin/node_modules/
+# libkcore fetched by scripts/fetch_kcore.py (platform wheels bundle it; never committed)
+knishioclient/_kcore/

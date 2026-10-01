@@ -1,9 +1,13 @@
+import json
+import os
 import re
 import shutil
 import sys
 import pathlib
 from setuptools import find_packages, setup
 from setuptools.command.build_py import build_py
+from setuptools.command.bdist_wheel import bdist_wheel
+from setuptools.dist import Distribution
 
 if sys.version_info < (3, 11, 0):
     raise RuntimeError("KnishIOClient requires Python 3.11.0+")
@@ -18,6 +22,19 @@ except IndexError:
 BRIDGE_SOURCE = pathlib.Path(__file__).parent / 'bin'
 BRIDGE_FILES = ('noble-mlkem-bridge.js', 'package.json', 'package-lock.json')
 
+# Platform wheels: KNISHIO_KCORE_TARGET=<target> bundles the libkcore that
+# `python scripts/fetch_kcore.py --target <target>` put in knishioclient/_kcore/, and tags the
+# wheel py3-none-<platform>. Unset, the build is the pure py3-none-any wheel (and the sdist),
+# which never carries a library and falls back to pure Python and the Node bridge.
+KCORE_TARGET = os.environ.get('KNISHIO_KCORE_TARGET', '')
+KCORE_SOURCE = pathlib.Path(__file__).parent / 'knishioclient' / '_kcore'
+KCORE_PIN = None
+if KCORE_TARGET:
+    pins = json.loads((pathlib.Path(__file__).parent / 'scripts' / 'kcore-pins.json').read_text('utf-8'))
+    KCORE_PIN = pins['targets'].get(KCORE_TARGET)
+    if KCORE_PIN is None:
+        raise RuntimeError(f'unknown KNISHIO_KCORE_TARGET {KCORE_TARGET}')
+
 
 class BuildPyWithBridge(build_py):
     """Ship the ML-KEM bridge inside the package, as ``knishioclient/bin/``.
@@ -31,6 +48,10 @@ class BuildPyWithBridge(build_py):
     """
 
     def run(self):
+        # A library left in build/ by an earlier target must never reach this wheel.
+        stale = pathlib.Path(self.build_lib) / 'knishioclient' / '_kcore'
+        if stale.exists():
+            shutil.rmtree(stale)
         super().run()
         noble = BRIDGE_SOURCE / 'node_modules' / '@noble'
         if not (noble / 'post-quantum' / 'package.json').is_file():
@@ -42,6 +63,31 @@ class BuildPyWithBridge(build_py):
         for name in BRIDGE_FILES:
             shutil.copy2(BRIDGE_SOURCE / name, target / name)
         shutil.copytree(noble, target / 'node_modules' / '@noble', dirs_exist_ok=True)
+        if KCORE_PIN is not None:
+            marker = KCORE_SOURCE / 'TARGET'
+            library = KCORE_SOURCE / KCORE_PIN['name']
+            if not marker.is_file() or marker.read_text('utf-8').strip() != KCORE_TARGET or not library.is_file():
+                raise RuntimeError(f'run scripts/fetch_kcore.py --target {KCORE_TARGET} first')
+            stale.mkdir(parents=True)
+            shutil.copy2(library, stale / KCORE_PIN['name'])
+
+
+class KcoreDistribution(Distribution):
+    """With libkcore bundled the wheel is platform-specific: has_ext_modules() makes setuptools
+    build into platlib and bdist_wheel set Root-Is-Purelib: false (no .data/purelib split)."""
+
+    def has_ext_modules(self):
+        return KCORE_PIN is not None
+
+
+class BdistWheelKcore(bdist_wheel):
+    """Tags a wheel that bundles libkcore py3-none-<platform>: the library is loaded through
+    cffi's ABI mode, so it is independent of the CPython version and ABI."""
+
+    def get_tag(self):
+        if KCORE_PIN is not None:
+            return 'py3', 'none', KCORE_PIN['wheel_tag']
+        return super().get_tag()
 
 
 setup(name='knishioclient',
@@ -79,5 +125,6 @@ setup(name='knishioclient',
       zip_safe=False,
       include_package_data=True,
       install_requires=open("requirements.txt").readlines(),
-      cmdclass={'build_py': BuildPyWithBridge},
+      distclass=KcoreDistribution,
+      cmdclass={'build_py': BuildPyWithBridge, 'bdist_wheel': BdistWheelKcore},
       )

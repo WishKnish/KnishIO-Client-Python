@@ -1,5 +1,6 @@
 # Python SDK publish — tag-driven PyPI publish via Trusted Publishing / OIDC (cycle 177).
-# Push a bare semver tag (e.g. `0.9.1`) → ruff/pytest gate → build sdist+wheel → upload.
+# Push a bare semver tag (e.g. `0.9.1`) → ruff/pytest gate → build sdist, the pure wheel and six
+# platform wheels (wheels.yml, each installed and checked on its platform) → upload.
 #
 # Auth = PyPI Trusted Publishing (OIDC) — NO long-lived PYPI_API_TOKEN. One-time maintainer setup:
 #   pypi.org → the `knishioclient` project → Settings → Publishing → add a GitHub Actions trusted
@@ -76,12 +77,17 @@ jobs:
         working-directory: bin
         run: npm ci
 
+      # libkcore for this runner (sha256-pinned KnishIO-Crypto-Core Release); the tests below must
+      # pass through it.
+      - name: Fetch libkcore (linux-x64-gnu)
+        run: python scripts/fetch_kcore.py --target linux-x64-gnu
+
       # Gate — never publish a tag that doesn't lint/test clean.
       - name: Lint with ruff
         run: ruff check
 
-      - name: Test with pytest
-        run: pytest
+      - name: Test with pytest (libkcore required)
+        run: KNISHIO_KCORE=require pytest
 
       - name: Build sdist + wheel
         run: python -m build
@@ -113,9 +119,16 @@ jobs:
           print('wheel OK, version', knishioclient.__version__, 'from', knishioclient.__file__)
           "
 
+  # The sdist, the pure wheel and the six platform wheels, each installed and checked on the
+  # platform it targets. The publish job uploads exactly these artifacts.
+  wheels:
+    name: wheels
+    needs: verify
+    uses: ./.github/workflows/wheels.yml
+
   publish:
     name: publish to PyPI (Trusted Publishing)
-    needs: verify
+    needs: [verify, wheels]
     if: github.event_name == 'push'   # dispatch = dry run; never publishes
     runs-on: ubuntu-latest
     environment: release   # matches the PyPI trusted-publisher Environment + the repo's `release` env
@@ -154,29 +167,13 @@ jobs:
           echo "Release notes for $TAG_VERSION:"
           cat /tmp/release-notes.md
 
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      # Only the wheels.yml artifacts, the ones that were installed and checked on their platforms:
+      # the sdist, the pure wheel and the six platform wheels.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
-          python-version: '3.x'
-
-      - name: Install build tooling
-        run: |
-          python -m pip install --upgrade pip
-          pip install build
-
-      # setup.py copies bin/'s ML-KEM bridge and its pinned node_modules into the wheel, and
-      # refuses to build without them.
-      - name: Set up Node.js (for the ML-KEM noble bridge)
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
-        with:
-          node-version: '20'
-
-      - name: Install ML-KEM bridge deps (@noble/post-quantum)
-        working-directory: bin
-        run: npm ci
-
-      - name: Build sdist + wheel
-        run: python -m build
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
 
       # OIDC trusted publishing: no PYPI_API_TOKEN; the action authenticates via the id-token and
       # uploads everything in dist/.

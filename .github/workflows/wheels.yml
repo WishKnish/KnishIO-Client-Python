@@ -1,0 +1,180 @@
+# Wheels: the sdist and pure py3-none-any wheel (pure-Python WOTS+, Node-bridge ML-KEM) plus one
+# py3-none-<platform> wheel per libkcore target, each bundling the libkcore that
+# scripts/fetch_kcore.py downloads from the sha256-pinned KnishIO-Crypto-Core Release. Every wheel
+# is then installed on the platform it targets and checked against the cross-platform vectors
+# (scripts/kcore_wheel_check.py). Shared by python-package.yml and publish.yml.
+name: Wheels
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [pure, linux-x64-gnu, linux-arm64-gnu, linux-x64-musl, linux-arm64-musl, darwin-universal, windows-x64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+
+      # setup.py copies bin/'s ML-KEM bridge and its pinned node_modules into every wheel.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: '20'
+
+      - name: Install ML-KEM bridge deps (@noble/post-quantum)
+        working-directory: bin
+        run: npm ci
+
+      - name: Build
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          pip install build
+          if [ "$TARGET" = pure ]; then
+            python -m build
+          else
+            python scripts/fetch_kcore.py --target "$TARGET"
+            KNISHIO_KCORE_TARGET="$TARGET" python -m build --wheel
+          fi
+
+      # The filename alone does not make a wheel platform-specific: check its WHEEL metadata and
+      # that exactly the expected library is inside (and none in the pure wheel).
+      - name: Check wheel tags and contents
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          python - <<'PY'
+          import glob, json, os, sys, zipfile
+          target = os.environ['TARGET']
+          wheels = glob.glob('dist/*.whl')
+          if len(wheels) != 1:
+              sys.exit(f'expected one wheel, got {wheels}')
+          wheel = wheels[0]
+          names = zipfile.ZipFile(wheel).namelist()
+          meta = zipfile.ZipFile(wheel).read(next(n for n in names if n.endswith('.dist-info/WHEEL'))).decode()
+          lines = meta.splitlines()
+          kcore = sorted(n for n in names if '/_kcore/' in n)
+          if target == 'pure':
+              plat, want_pure, want_kcore = 'any', 'true', []
+          else:
+              pin = json.load(open('scripts/kcore-pins.json'))['targets'][target]
+              plat, want_pure, want_kcore = pin['wheel_tag'], 'false', [f"knishioclient/_kcore/{pin['name']}"]
+          want_tags = [f'py3-none-{t}' for t in plat.split('.')]
+          errors = []
+          if not wheel.endswith(f'-py3-none-{plat}.whl'):
+              errors.append(f'filename {wheel}')
+          if f'Root-Is-Purelib: {want_pure}' not in lines:
+              errors.append('Root-Is-Purelib')
+          if sorted(l[len('Tag: '):] for l in lines if l.startswith('Tag: ')) != sorted(want_tags):
+              errors.append('Tag lines')
+          if kcore != want_kcore:
+              errors.append(f'_kcore members {kcore}')
+          if any('.data/' in n for n in names):
+              errors.append('.data/ entries')
+          print(os.path.basename(wheel), '|', ' '.join(l for l in lines if l.startswith(('Root-Is-Purelib', 'Tag'))), '|', kcore)
+          if errors:
+              sys.exit('wheel check failed: ' + ', '.join(errors))
+          PY
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: wheel-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  test:
+    name: test (${{ matrix.target }} on ${{ matrix.runner }})
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, target: linux-x64-gnu, how: venv, mode: full }
+          - { runner: ubuntu-24.04-arm, target: linux-arm64-gnu, how: venv, mode: full }
+          - { runner: ubuntu-24.04, target: linux-x64-musl, how: alpine, mode: full }
+          - { runner: ubuntu-24.04-arm, target: linux-arm64-musl, how: alpine, mode: full }
+          - { runner: macos-15, target: darwin-universal, how: venv, mode: full }
+          - { runner: macos-15-intel, target: darwin-universal, how: venv, mode: full }
+          # The SDK imports libnacl, which needs a libsodium DLL no Windows runner has, so Windows
+          # checks the packaged library and its KATs without importing the SDK.
+          - { runner: windows-2025, target: windows-x64, how: venv, mode: lib }
+          - { runner: ubuntu-24.04, target: pure, how: venv, mode: fallback }
+    defaults:
+      run:
+        shell: bash
+    env:
+      MODE: ${{ matrix.mode }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: wheel-${{ matrix.target }}
+          path: wheelhouse
+
+      - name: Install libsodium (Linux)
+        if: matrix.how == 'venv' && runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libsodium23
+
+      - name: Install libsodium (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install libsodium
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        if: matrix.how == 'venv'
+        with:
+          python-version: '3.11'
+
+      # The fallback lane runs ML-KEM through the Node bridge the wheel ships.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        if: matrix.mode == 'fallback'
+        with:
+          node-version: '20'
+
+      - name: Install the wheel and check it (venv)
+        if: matrix.how == 'venv'
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/v"
+          if [ "$RUNNER_OS" = Windows ]; then PY="$RUNNER_TEMP/v/Scripts/python"; else PY="$RUNNER_TEMP/v/bin/python"; fi
+          "$PY" -m pip install wheelhouse/*.whl
+          # Exported here, not via $GITHUB_ENV: macOS strips DYLD_* when the runner execs the
+          # SIP-protected /bin/bash, so a step-level variable would never reach this python.
+          if [ "$RUNNER_OS" = macOS ]; then
+            DYLD_FALLBACK_LIBRARY_PATH="$(brew --prefix libsodium)/lib"
+            export DYLD_FALLBACK_LIBRARY_PATH
+          fi
+          cd "$RUNNER_TEMP"
+          "$PY" "$GITHUB_WORKSPACE/scripts/kcore_wheel_check.py" --mode "$MODE" \
+            --vectors "$GITHUB_WORKSPACE/tests/fixtures/cross-platform-test-vectors.json"
+
+      # JavaScript actions cannot run inside an arm64 Alpine `container:` job, so run Alpine
+      # with docker (as KnishIO-Crypto-Core's build.yml does).
+      - name: Install the wheel and check it (Alpine, musl)
+        if: matrix.how == 'alpine'
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w -e MODE alpine:3.20 sh -c '
+            set -e
+            apk add --no-cache python3 py3-pip libsodium build-base python3-dev libffi-dev > /dev/null
+            python3 -m venv /tmp/v
+            /tmp/v/bin/pip install /w/wheelhouse/*.whl
+            cd /tmp
+            /tmp/v/bin/python /w/scripts/kcore_wheel_check.py --mode "$MODE" \
+              --vectors /w/tests/fixtures/cross-platform-test-vectors.json'

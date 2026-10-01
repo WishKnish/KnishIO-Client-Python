@@ -50,6 +50,10 @@ jobs:
     - name: Install ML-KEM bridge deps (@noble/post-quantum)
       working-directory: bin
       run: npm ci
+    # libkcore for this runner, from the sha256-pinned KnishIO-Crypto-Core Release, so the suite
+    # runs once through kcore and once through the pure-Python/Node-bridge fallback.
+    - name: Fetch libkcore (linux-x64-gnu)
+      run: python scripts/fetch_kcore.py --target linux-x64-gnu
     - name: Lint with ruff
       run: |
         # Enforced gate (config in pyproject.toml [tool.ruff.lint]): syntax errors (E9)
@@ -58,9 +62,14 @@ jobs:
         # forward-reference annotations ("Molecule"/"KnishIOClient"/…) for circular-import
         # avoidance, which pyflakes false-flags (the old flake8 gate omitted F82 for the same reason).
         ruff check
-    - name: Test with pytest
+    - name: Test with pytest (libkcore required, then switched off)
       run: |
-        pytest
+        KNISHIO_KCORE=require pytest
+        KNISHIO_KCORE=off pytest
+
+  wheels:
+    name: wheels
+    uses: ./.github/workflows/wheels.yml
 
   changelog:
     name: changelog entry for version bump

@@ -7,7 +7,7 @@ from hashlib import shake_256 as shake
 from json import dumps, loads
 from typing import List, Dict, Any
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from ..libraries import strings, crypto
+from ..libraries import strings, crypto, kcore
 from ..exception import WalletCredentialException
 from .TokenUnit import TokenUnit
 
@@ -217,6 +217,10 @@ class Wallet(object):
         :param key: str
         :return: str
         """
+        address = kcore.wots_address(key)
+        if address is not None:
+            return address
+
         digest_sponge = shake()
 
         for fragment in strings.chunk_substr(key, 128):
