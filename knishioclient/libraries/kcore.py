@@ -15,6 +15,7 @@ by file path without importing ``knishioclient``.
 """
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,8 @@ _lib: Any = None
 _path: str | None = None
 _reason: str | None = None
 _mode_seen: str = 'auto'
+# Serializes the first load; once _state is set, _ensure() reads it without taking the lock.
+_lock = threading.Lock()
 
 
 class KcoreUnavailable(RuntimeError):
@@ -95,15 +98,17 @@ def _ensure() -> bool:
     """True when libkcore is loaded. In ``require`` mode a failed load raises on every call."""
     global _state, _path, _reason, _mode_seen
     if _state is None:
-        _mode_seen = _mode()
-        if _mode_seen == 'off':
-            _state = 'off'
-        else:
-            override = os.environ.get('KNISHIO_KCORE_LIB')
-            path = Path(override) if override else _default_path()
-            _path = str(path) if path is not None else None
-            _reason = _load(path)
-            _state = 'ok' if _reason is None else 'failed'
+        with _lock:
+            if _state is None:
+                _mode_seen = _mode()
+                if _mode_seen == 'off':
+                    _state = 'off'
+                else:
+                    override = os.environ.get('KNISHIO_KCORE_LIB')
+                    path = Path(override) if override else _default_path()
+                    _path = str(path) if path is not None else None
+                    _reason = _load(path)
+                    _state = 'ok' if _reason is None else 'failed'
     if _state == 'failed' and _mode_seen == 'require':
         raise KcoreUnavailable(f'libkcore unavailable: {_reason} ({_path})')
     return _state == 'ok'

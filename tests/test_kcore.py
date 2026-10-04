@@ -13,8 +13,10 @@ import hashlib
 import json
 import os
 import sys
+import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SDK_ROOT = str(Path(__file__).resolve().parent.parent)
 if SDK_ROOT not in sys.path:
@@ -148,6 +150,34 @@ class ModeTest(KcoreTestCase):
         os.environ["KNISHIO_KCORE"] = "bogus"
         with self.assertRaises(ValueError):
             kcore.available()
+
+    def test_concurrent_first_use_loads_once(self):
+        # setUp reset the loader, so all 16 threads race into the first load together.
+        threads, barrier = 16, threading.Barrier(16)
+        results: list[object] = [None] * threads
+
+        def worker(i):
+            barrier.wait()
+            try:
+                results[i] = kcore.wots_address("a" * 2048)
+            except kcore.KcoreUnavailable as e:
+                results[i] = e
+
+        with mock.patch.object(kcore, "_load", wraps=kcore._load) as load:
+            pool = [threading.Thread(target=worker, args=(i,)) for i in range(threads)]
+            for t in pool:
+                t.start()
+            for t in pool:
+                t.join()
+        mode = os.environ.get("KNISHIO_KCORE", "auto").lower()
+        self.assertEqual(load.call_count, 0 if mode == "off" else 1)
+        if kcore._state == "ok":
+            self.assertEqual(len(set(results)), 1)
+            self.assertIsNotNone(results[0])
+        elif mode == "require":
+            self.assertTrue(all(isinstance(r, kcore.KcoreUnavailable) for r in results))
+        else:
+            self.assertEqual(results, [None] * threads)
 
 
 if __name__ == "__main__":

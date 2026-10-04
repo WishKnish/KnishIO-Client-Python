@@ -494,6 +494,10 @@ Master secrets are stored at rest in the cross-SDK AES-256-GCM envelope (PBKDF2-
 
 Client integration: `KnishIOClient(secret_storage=...)` and `client.set_secret_storage(provider, bundle_hash=...)` attaches a provider and persists the secret there; the client still holds the cleartext in memory.
 
+## Thread safety
+
+Platform wheels bundle libkcore (KnishIO-Crypto-Core), which the SDK uses for WOTS+ and ML-KEM when it loads (`KNISHIO_KCORE=auto|off|require`, `KNISHIO_KCORE_LIB` to override the library path). The library is loaded once, on first use, even when many threads make that first call together; after that, kcore calls are safe from any number of threads. The surrounding SDK code runs under the GIL, so for CPU-bound parallelism (signing or verifying many molecules) use processes, e.g. `concurrent.futures.ProcessPoolExecutor`, rather than threads.
+
 ## Getting Help
 
 Knish.IO is under active development, and our team is ready to assist with integration questions. The best way to seek help is to stop by our [Telegram Support Channel](https://t.me/wishknish). You can also [send us a contact request](https://knish.io/contact) via our website.

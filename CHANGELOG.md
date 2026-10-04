@@ -16,6 +16,24 @@ history. Entries at and below `0.8.1` are reconstructed from commit messages
 rather than written at release time; where the history does not substantiate a
 detail, the entry says so instead of guessing.
 
+## [1.4.0] — 2026-10-04
+
+### Added
+
+- kcore backend: `Wallet.generate_address`, `MoleculeStructure.signature_fragments` and the
+  ML-KEM-1024/768 keypair, encapsulation and decapsulation run through libkcore
+  (KnishIO-Crypto-Core 0.1.0) when it loads, with the pure-Python loops and the Node bridge as the
+  fallback. Outputs are identical either way.
+- Platform wheels (`py3-none-<platform>`) bundle libkcore; the sdist and the `py3-none-any` wheel
+  do not. `KNISHIO_KCORE` selects `auto` (default), `off` or `require`, and `KNISHIO_KCORE_LIB`
+  overrides the library path.
+- `cffi` is a runtime dependency.
+
+### Fixed
+
+- Concurrent first use of the kcore loader: threads that raced into the first call each loaded
+  the library; the load is now serialized, and calls after it take no lock.
+
 ## [1.3.2] — 2026-09-29
 
 ### Fixed
@@ -454,7 +472,8 @@ published) fixed policy ContinuID signing (F-3) by signing the R-atom from the
 established source wallet. See the git tag history and the
 [PyPI release list](https://pypi.org/project/knishioclient/#history).
 
-[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.3.2...HEAD
+[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.4.0...HEAD
+[1.4.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.4.0
 [1.3.2]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.3.2
 [1.3.1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.3.1
 [1.3.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.3.0
