@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import re
 from . import strings
 from .Base58 import Base58
 from .Soda import Soda
@@ -177,6 +178,15 @@ def shake256(input_data: str, output_length: int) -> str:
     # output_length is in bits, hexdigest expects bytes
     return sponge.hexdigest(output_length // 8)
 
+
+def is_signable_hash(value) -> bool:
+    """
+    True when value is a molecular hash that can be signed or verified: exactly 64 characters of [0-9a-g].
+
+    :param value: str
+    :return: bool
+    """
+    return isinstance(value, str) and re.fullmatch(r'[0-9a-g]{64}', value) is not None
 
 
 def zeroize(b: Any) -> None:

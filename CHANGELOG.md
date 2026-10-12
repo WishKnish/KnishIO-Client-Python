@@ -16,6 +16,28 @@ history. Entries at and below `0.8.1` are reconstructed from commit messages
 rather than written at release time; where the history does not substantiate a
 detail, the entry says so instead of guessing.
 
+## [Unreleased]
+
+### Added
+
+- Opt-in OTS v2 signatures (64 chains, 8192-hex keys): `Wallet(..., ots_version=1|2)`,
+  `Wallet.create(..., ots_version=)`, `Wallet.generate_key(secret, token, position, ots_version=1)`
+  and the read-only `Wallet.ots_version` (default 1). Any other version raises `ValueError`.
+- `Molecule.signing_ots_version()`: the source wallet's version, or 1 without a source wallet.
+- `crypto.is_signable_hash(value)`: true for exactly 64 characters of `[0-9a-g]`.
+
+### Changed
+
+- `check.ots()` verifies both v1 (2048-hex) and v2 (8192-hex) signatures, raw or base64; base64 is
+  decoded strictly, and an undecodable or wrongly sized signature raises `SignatureMalformedException`.
+- A declared molecular hash that is not 64 characters of `[0-9a-g]` raises
+  `SignatureMalformedException` in `check.ots()` and in `Molecule.sign()`.
+- Remainder and buffer wallets created for a signer (`Molecule` constructor, deposit buffer,
+  `Wallet.create_remainder`, `KnishIOClient.create_molecule`) keep the source wallet's OTS version.
+- `Wallet.generate_key` raises `WalletCredentialException` for an empty secret or position.
+- The kcore chain walk in `MoleculeStructure.signature_fragments` covers 16 or 64 chains, and
+  `Wallet.generate_address` computes the 64 chain endpoints of a v2 key through kcore.
+
 ## [1.4.0] — 2026-10-04
 
 ### Added

@@ -56,15 +56,16 @@ class MoleculeStructure(Base):
         key_fragments = ''
         normalized_hash = self.normalized_hash()
 
-        # libkcore walks all 16 chains at once; it returns None for any key or count it does not
-        # take (wrong length, negative steps), and the loop below then gives the same result.
-        if len(normalized_hash) >= 16:
-            counts = [8 + normalized_hash[i] * (-1 if encode else 1) for i in range(16)]
+        # libkcore walks all chains at once (16 for a 2048-hex key, 64 for an 8192-hex key); it returns
+        # None for any key or count it does not take, and the loop below then gives the same result.
+        chain_count = len(key) // 128
+        if 0 < chain_count <= len(normalized_hash):
+            counts = [8 + normalized_hash[i] * (-1 if encode else 1) for i in range(chain_count)]
             fragments = kcore.chains_hex(key, counts)
             if fragments is not None:
                 return fragments
 
-        # Subdivide Kk into 16 segments of 128 characters each
+        # Subdivide Kk into segments of 128 characters each
         for index, ots_chunk in enumerate(map(''.join, zip(*[iter(key)] * 128))):
             working_chunk = ots_chunk
 

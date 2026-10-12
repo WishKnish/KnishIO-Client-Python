@@ -53,7 +53,8 @@ class Molecule(MoleculeStructure):
                 token=source_wallet.token,
                 batch_id=source_wallet.batchId,
                 characters=source_wallet.characters,
-                mlkem_param_set=self.mlkem_param_set
+                mlkem_param_set=self.mlkem_param_set,
+                ots_version=self.signing_ots_version()
             )
 
     @property
@@ -1146,7 +1147,8 @@ class Molecule(MoleculeStructure):
             secret=self.secret(),
             token=self.sourceWallet.token,
             batch_id=self.sourceWallet.batchId,
-            mlkem_param_set=self.mlkem_param_set
+            mlkem_param_set=self.mlkem_param_set,
+            ots_version=self.signing_ots_version()
         )
         if trade_rates:
             buffer_wallet.tradeRates = trade_rates
@@ -1316,15 +1318,25 @@ class Molecule(MoleculeStructure):
 
         return self
 
+    def signing_ots_version(self) -> int:
+        """
+        OTS version used to sign this molecule: the source wallet's version, or 1 without a source wallet.
+
+        :return: int
+        """
+        source_wallet = getattr(self, 'sourceWallet', None)
+        return getattr(source_wallet, 'ots_version', 1) if source_wallet is not None else 1
+
     def sign(self, anonymous: bool = False, compressed: bool = True) -> str | bytes | None:
         """
         Creates a one-time signature for a molecule and breaks it up across multiple atoms within that
-        molecule. Resulting 4096 byte (2048 character) string is the one-time signature.
+        molecule. The signature is 2048 hex characters for OTS v1 and 8192 for OTS v2.
 
         :param anonymous: bool default False
         :param compressed: bool default True
         :return: str | bytes | None
-        :raise TypeError: The molecule does not contain atoms
+        :raise AtomsMissingException: The molecule does not contain atoms
+        :raise SignatureMalformedException: The molecular hash is not 64 characters of [0-9a-g]
         """
         if len(self.atoms) == 0 or len([atom for atom in self.atoms if not isinstance(atom, Atom)]) != 0:
             raise AtomsMissingException()
@@ -1334,11 +1346,14 @@ class Molecule(MoleculeStructure):
 
         self.molecularHash = Atom.hash_atoms(self.atoms)
         self.atoms = Atom.sort_atoms(self.atoms)
+        if not crypto.is_signable_hash(self.molecularHash):
+            raise SignatureMalformedException()
         first_atom = self.atoms[0]
         key = Wallet.generate_key(
             secret=self.secret(),
             token=first_atom.token,
-            position=first_atom.position
+            position=first_atom.position,
+            ots_version=self.signing_ots_version()
         )
 
         signature_fragments = self.signature_fragments(key)

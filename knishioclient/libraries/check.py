@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 
 import json
+import base64
+import binascii
 from hashlib import shake_256 as shake
 from ..exception import *
-from ..libraries import strings, decimal
+from ..libraries import strings, decimal, crypto
 from knishioclient import models
 from typing import List
 
@@ -510,18 +512,21 @@ def ots(molecule: 'Molecule') -> bool:
     :raises [MolecularHashMissingException, AtomsMissingException, SignatureMalformedException, SignatureMismatchException]:
     """
     missing(molecule)
+    if not crypto.is_signable_hash(molecule.molecularHash):
+        raise SignatureMalformedException()
 
     # Determine first atom
     first_atom = molecule.atoms[0]
     # Rebuilding OTS out of all the atoms
-    key = ''.join([atom.otsFragment for atom in molecule.atoms])
+    key = ''.join([getattr(atom, 'otsFragment', None) or '' for atom in molecule.atoms])
 
-    # Wrong size? Maybe it's compressed
-    if 2048 != len(key):
-        # Attempt decompression
-        key = strings.base64_to_hex(key)
-        # Still wrong? That's a failure
-        if 2048 != len(key):
+    # 2048 (v1) or 8192 (v2) characters is raw hex; anything else must be strict base64
+    if len(key) not in (2048, 8192):
+        try:
+            key = base64.b64decode(key, validate=True).hex()
+        except (binascii.Error, ValueError):
+            raise SignatureMalformedException()
+        if len(key) not in (2048, 8192):
             raise SignatureMalformedException()
 
     key_fragments = molecule.signature_fragments(key, False)

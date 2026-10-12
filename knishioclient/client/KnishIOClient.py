@@ -237,7 +237,8 @@ class KnishIOClient(object):
 
         self.__remainder_wallet = remainder_wallet or Wallet.create(
             secret, bundle, source_wallet.token, source_wallet.batchId, source_wallet.characters,
-            mlkem_param_set=self.get_mlkem_parameter_set()
+            mlkem_param_set=self.get_mlkem_parameter_set(),
+            ots_version=getattr(source_wallet, 'ots_version', 1)
         )
         molecule = Molecule(
             secret=secret,

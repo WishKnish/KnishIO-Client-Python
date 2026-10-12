@@ -29,7 +29,8 @@ class Wallet(object):
                  position: str = None,
                  batch_id: str = None,
                  characters: str = None,
-                 mlkem_param_set: int = 1024) -> None:
+                 mlkem_param_set: int = 1024,
+                 ots_version: int = 1) -> None:
 
         self.token: str = token
         self.balance: int | float = 0
@@ -37,6 +38,9 @@ class Wallet(object):
         self.mlkem_param_set: int = int(mlkem_param_set)
         if self.mlkem_param_set not in (1024, 768):
             raise ValueError(f'KnishIO: unsupported ML-KEM parameter set {mlkem_param_set}; expected 1024 or 768.')
+        if isinstance(ots_version, bool) or ots_version not in (1, 2):
+            raise ValueError(f'KnishIO: unsupported OTS version {ots_version}; expected 1 or 2.')
+        self.ots_version: int = int(ots_version)
 
         # Empty values
         self.key: str | bytes | None = None
@@ -54,7 +58,7 @@ class Wallet(object):
         if secret is not None:
             self.bundle = self.bundle or crypto.generate_bundle_hash(secret)
             self.position = self.position or Wallet.generate_position()
-            self.key = Wallet.generate_key(secret, self.token, self.position)
+            self.key = Wallet.generate_key(secret, self.token, self.position, self.ots_version)
             self.address = self.address or Wallet.generate_address(self.key)
             self.initialize_mlkem()
 
@@ -170,7 +174,7 @@ class Wallet(object):
 
     @classmethod
     def create(cls, secret: str = None, bundle: str = None, token: str = 'USER', batch_id: str = None,
-               characters: str = None, mlkem_param_set: int = 1024):
+               characters: str = None, mlkem_param_set: int = 1024, ots_version: int = 1):
         if not secret and not bundle:
             raise WalletCredentialException()
 
@@ -187,11 +191,13 @@ class Wallet(object):
             position=position,
             batch_id=batch_id,
             characters=characters,
-            mlkem_param_set=mlkem_param_set
+            mlkem_param_set=mlkem_param_set,
+            ots_version=ots_version
         )
 
     def create_remainder(self, secret: str):
-        remainder_wallet = Wallet.create(secret, token=self.token, characters=self.characters)
+        remainder_wallet = Wallet.create(secret, token=self.token, characters=self.characters,
+                                         ots_version=self.ots_version)
         remainder_wallet.init_batch_id(self, is_remainder=True)
         return remainder_wallet
 
@@ -221,17 +227,22 @@ class Wallet(object):
         if address is not None:
             return address
 
+        # kcore's address entry point takes v1 keys only; its chain primitive takes the 64 v2 chains
+        endpoints = kcore.chains_hex(key, [16] * 64) if len(key) == 8192 else None
         digest_sponge = shake()
 
-        for fragment in strings.chunk_substr(key, 128):
-            working_fragment = fragment
+        if endpoints is not None:
+            digest_sponge.update(strings.encode(endpoints))
+        else:
+            for fragment in strings.chunk_substr(key, 128):
+                working_fragment = fragment
 
-            for _ in range(16):
-                working_sponge = shake()
-                working_sponge.update(strings.encode(working_fragment))
-                working_fragment = working_sponge.hexdigest(64)
+                for _ in range(16):
+                    working_sponge = shake()
+                    working_sponge.update(strings.encode(working_fragment))
+                    working_fragment = working_sponge.hexdigest(64)
 
-            digest_sponge.update(strings.encode(working_fragment))
+                digest_sponge.update(strings.encode(working_fragment))
 
         sponge = shake()
         sponge.update(strings.encode(digest_sponge.hexdigest(1024)))
@@ -239,13 +250,18 @@ class Wallet(object):
         return sponge.hexdigest(32)
 
     @classmethod
-    def generate_key(cls, secret: str, token: str, position: str) -> str:
+    def generate_key(cls, secret: str, token: str, position: str, ots_version: int = 1) -> str:
         """
         :param secret: str
         :param token: str
         :param position: str
+        :param ots_version: int 1 (2048-hex key, 16 chains) or 2 (8192-hex key, 64 chains)
         :return: str
         """
+        if isinstance(ots_version, bool) or ots_version not in (1, 2):
+            raise ValueError(f'KnishIO: unsupported OTS version {ots_version}; expected 1 or 2.')
+        if not secret or not position:
+            raise WalletCredentialException()
         # Cross-SDK parity (c142): the secret/position are canonically hex, but the family
         # (JS/TS/Rust) accepts arbitrary-string secrets by hashing them to hex first when not
         # already hex (isHex(s) ? s : shake256(s)). Mirror that so a non-hex secret derives a
@@ -258,6 +274,12 @@ class Wallet(object):
         # Adding new position to the user secret to produce the indexed key
         indexed_key = '%x' % np.add(np.array([int(secret_hex, 16)], dtype='object'),
                                     np.array([int(position_hex, 16)], dtype='object'))[0]
+        if ots_version == 2:
+            # OTS v2: domain-separated stage 1, 8192-bit intermediate, 32768-bit (8192-hex) key
+            stage1 = 'KnishIO-OTS-v2|' + indexed_key + '|' + (token or '')
+            intermediate = crypto.shake256(stage1, 8192)
+            return crypto.shake256(intermediate, 32768)
+
         # Hashing the indexed key to produce the intermediate key
         intermediate_key_sponge = shake()
         intermediate_key_sponge.update(indexed_key.encode('utf-8'))
