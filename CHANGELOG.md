@@ -38,6 +38,10 @@ detail, the entry says so instead of guessing.
 - The kcore chain walk in `MoleculeStructure.signature_fragments` covers 16 or 64 chains, and
   `Wallet.generate_address` computes the 64 chain endpoints of a v2 key through kcore.
 
+### Security
+
+- `requirements.lock` pins `multidict` 6.9.1 (CVE-2026-104874; was 6.7.1).
+
 ## [1.4.0] — 2026-10-04
 
 ### Added
