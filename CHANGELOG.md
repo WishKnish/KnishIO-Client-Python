@@ -54,6 +54,8 @@ detail, the entry says so instead of guessing.
   `get_source_wallet()` and those balance wallets raise `WalletCredentialException` when neither
   version derives the address; the login pointer falls back to an AUTH wallet as before.
 - The USER remainder of a profile authorization keeps the signing wallet's OTS version.
+- `cryptography` 50.0.2 and `cffi` 2.1.1; the build requires setuptools ≥ 84; development tools
+  ruff ≥ 0.16.10 and build ≥ 1.6.1.
 
 ### Security
 
