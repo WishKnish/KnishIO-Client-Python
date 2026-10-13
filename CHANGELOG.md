@@ -67,6 +67,12 @@ detail, the entry says so instead of guessing.
   ruff ≥ 0.16.10 and build ≥ 1.6.1.
 - `aiohttp` 3.14.4; `requirements.lock` pins `yarl` 1.25.1, which it requires.
 
+### Fixed
+
+- A ContinuID remainder that is not a USER wallet is replaced with a USER wallet, as in the other
+  SDKs; the client's default remainder is a USER wallet. `Molecule.add_continue_id_atom()` raises
+  `WalletCredentialException` when it must replace the remainder and the molecule has no secret.
+
 ### Security
 
 - `requirements.lock` pins `multidict` 6.9.1 (CVE-2026-104874; was 6.7.1).

@@ -363,8 +363,20 @@ class Molecule(MoleculeStructure):
             raise Exception(f"Molecule deserialization failed: {str(e)}")
 
     def add_continue_id_atom(self):
-        # Mirror the JS reference (Molecule.js addContinuIdAtom): the ContinuID
-        # I-atom carries previousPosition + the remainder wallet's pubkey/characters.
+        # Mirror the JS reference (Molecule.js addContinuIdAtom): the ContinuID I-atom registers a
+        # USER wallet (a missing or non-USER remainder is replaced) and carries previousPosition plus
+        # the remainder wallet's pubkey/characters.
+        remainder = getattr(self, 'remainderWallet', None)
+        if remainder is None or remainder.token != 'USER':
+            if not self.secret():
+                raise WalletCredentialException('KnishIO: a ContinuID remainder needs the molecule secret.')
+            self.remainderWallet = Wallet.create(
+                secret=self.secret(),
+                bundle=self.bundle,
+                mlkem_param_set=self.mlkem_param_set,
+                ots_version=self.successor_ots_version()
+            )
+
         continu_id_meta: Dict[str, Any] = {}
         previous_position = getattr(self, 'continuIdPosition', None) or (
             self.sourceWallet.position if self.sourceWallet is not None else None
@@ -1315,7 +1327,7 @@ class Molecule(MoleculeStructure):
 
         # ContinuID I-atom — registers the bundle's relay head on-ledger so subsequent molecules
         # advance the chain instead of falling to fresh genesis (mirror JS initAuthorization +
-        # every other init_*; the auth molecule's remainder is set to USER in request_profile_auth_token).
+        # every other init_*).
         self.add_continue_id_atom()
 
         self.atoms = Atom.sort_atoms(self.atoms)

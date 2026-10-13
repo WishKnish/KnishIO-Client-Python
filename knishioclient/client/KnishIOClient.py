@@ -271,10 +271,10 @@ class KnishIOClient(object):
         if source_wallet is None:
             source_wallet = self.get_source_wallet()
 
-        # The remainder is never below the client's OTS version, so a client set to v2 moves the
-        # identity's successor wallets to v2
+        # The default remainder is a USER wallet (as in JS createMolecule). It is never below the
+        # client's OTS version, so a client set to v2 moves the identity's successor wallets to v2
         self.__remainder_wallet = remainder_wallet or Wallet.create(
-            secret, bundle, source_wallet.token, source_wallet.batchId, source_wallet.characters,
+            secret, bundle, 'USER', source_wallet.batchId, source_wallet.characters,
             mlkem_param_set=self.get_mlkem_parameter_set(),
             ots_version=max(getattr(source_wallet, 'ots_version', 1), self.get_ots_version())
         )
@@ -1008,16 +1008,8 @@ class KnishIOClient(object):
 
     def __propose_profile_authorization(self, wallet: Wallet, encrypt: bool):
         # The source wallet (AUTH, or the USER wallet at the ContinuID pointer) signs the U-atom;
-        # an explicit USER remainder at a fresh position (mirror JS createMolecule) makes the
-        # ContinuID I-atom USER-token with previousPosition = the source position. Without it,
-        # create_molecule auto-derives the remainder from source_wallet.token (AUTH) → a
-        # wrong-token I-atom.
-        molecule = self.create_molecule(
-            self.secret(),
-            source_wallet=wallet,
-            remainder_wallet=Wallet.create(self.secret(), self.bundle(), 'USER', mlkem_param_set=self.get_mlkem_parameter_set(),
-                                           ots_version=max(wallet.ots_version, self.get_ots_version()))
-        )
+        # create_molecule's default USER remainder registers the next ContinuID position.
+        molecule = self.create_molecule(self.secret(), source_wallet=wallet)
 
         # Create auth mutation
         query = self.create_molecule_mutation(MutationRequestAuthorization, molecule)
