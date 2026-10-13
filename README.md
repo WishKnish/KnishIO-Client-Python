@@ -50,12 +50,18 @@ library composes with a consumer's own dependency graph, and `requirements-dev.t
 the lint/test/audit/build tooling (`ruff`, `pytest`, `pip-audit`, `build`). For a fully
 pinned, reproducible install we also commit `requirements.lock` — a universal,
 hash-verified resolution of the runtime closure generated with
-`uv pip compile requirements.txt --universal --generate-hashes -o requirements.lock`;
+`uv pip compile requirements.txt --universal --generate-hashes -o requirements.lock --exclude-newer <cutoff>`,
+where `<cutoff>` is an RFC 3339 instant at least seven days in the past;
 regenerate it whenever `requirements.txt` changes and install it with
 `pip install -r requirements.lock` in environments that need byte-for-byte reproducibility
-(the floors in `requirements.txt` remain the source of truth for supported versions). The
+(the floors in `requirements.txt` remain the source of truth for supported versions).
+CI and the publish workflow install the development tools from `requirements-dev.lock`,
+generated at the same cutoff and constrained to the runtime lock with
+`uv pip compile requirements-dev.txt -c requirements.lock --universal --generate-hashes --exclude-newer <cutoff> -o requirements-dev.lock`;
+regenerate it after `requirements-dev.txt` or `requirements.lock` changes. The
 dependency set is scanned for known CVEs with `pip-audit -r requirements.txt` (and
-`pip-audit -r requirements.lock`); the current closure reports **no known vulnerabilities**.
+`pip-audit -r requirements.lock`, `pip-audit -r requirements-dev.lock`); the current closure
+reports **no known vulnerabilities**.
 
 After installation, import the SDK in your project:
 
