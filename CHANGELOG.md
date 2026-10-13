@@ -65,6 +65,7 @@ detail, the entry says so instead of guessing.
   client's OTS version.
 - `cryptography` 50.0.2 and `cffi` 2.1.1; the build requires setuptools ≥ 84; development tools
   ruff ≥ 0.16.10 and build ≥ 1.6.1.
+- `aiohttp` 3.14.4; `requirements.lock` pins `yarl` 1.25.1, which it requires.
 
 ### Security
 
