@@ -67,6 +67,8 @@ detail, the entry says so instead of guessing.
   ruff ≥ 0.16.10 and build ≥ 1.6.1.
 - `aiohttp` 3.14.4; `requirements.lock` pins `yarl` 1.25.1, which it requires.
 - CI and publish install development tools from a hashed `requirements-dev.lock`.
+- With kcore 0.2.0, `Wallet.generate_address` computes OTS v2 (8192-hex) addresses through
+  `kcore_wots_address_v2`; an older libkcore keeps the previous path.
 
 ### Fixed
 

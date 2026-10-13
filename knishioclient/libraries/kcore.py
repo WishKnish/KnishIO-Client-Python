@@ -26,6 +26,7 @@ int kcore_abi_version(void);
 int kcore_shake256(const uint8_t *in, size_t inlen, uint8_t *out, size_t outlen);
 int kcore_chains_hex(char *chunks, const int *counts, size_t n, int ways);
 int kcore_wots_address(const char *key_hex2048, char *address_hex64);
+int kcore_wots_address_v2(const char *key_hex8192, char *address_hex64);
 int kcore_mlkem1024_keypair(const uint8_t seed[64], uint8_t pk[1568], uint8_t sk[3168]);
 int kcore_mlkem1024_encaps(const uint8_t pk[1568], const uint8_t coins[32], uint8_t ct[1568], uint8_t ss[32]);
 int kcore_mlkem1024_decaps(const uint8_t ct[1568], const uint8_t sk[3168], uint8_t ss[32]);
@@ -139,6 +140,19 @@ def wots_address(key) -> str | None:
     ffi, lib = _ffi, _lib
     out = ffi.new('char[64]')
     if lib.kcore_wots_address(ffi.new('char[]', key.encode('ascii')), out) != 0:
+        return None
+    return ffi.buffer(out, 64)[:].decode('ascii')
+
+
+def wots_address_v2(key) -> str | None:
+    """WOTS+ address of an 8192-hex key; ``None`` when the library predates kcore 0.2.0."""
+    if not isinstance(key, str) or len(key) != 8192 or not key.isascii() or not _ensure():
+        return None
+    ffi, lib = _ffi, _lib
+    if not hasattr(lib, 'kcore_wots_address_v2'):
+        return None
+    out = ffi.new('char[64]')
+    if lib.kcore_wots_address_v2(ffi.new('char[]', key.encode('ascii')), out) != 0:
         return None
     return ffi.buffer(out, 64)[:].decode('ascii')
 

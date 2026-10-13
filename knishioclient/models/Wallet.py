@@ -259,11 +259,10 @@ class Wallet(object):
         :param key: str
         :return: str
         """
-        address = kcore.wots_address(key)
+        address = kcore.wots_address(key) if len(key) == 2048 else kcore.wots_address_v2(key)
         if address is not None:
             return address
 
-        # kcore's address entry point takes v1 keys only; its chain primitive takes the 64 v2 chains
         endpoints = kcore.chains_hex(key, [16] * 64) if len(key) == 8192 else None
         digest_sponge = shake()
 

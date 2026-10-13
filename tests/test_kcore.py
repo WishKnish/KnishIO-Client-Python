@@ -71,6 +71,17 @@ class ParityTest(KcoreTestCase):
             with self.subTest(i=i):
                 self.assertEqual(self.pure(Wallet.generate_address, key), kcore.wots_address(key))
 
+    def test_wots_address_v2_matches_pure_python(self):
+        self.require_kcore()
+        if kcore.wots_address_v2("a" * 8192) is None:
+            self.skipTest("libkcore predates kcore_wots_address_v2")
+        for i in range(20):
+            key = hashlib.shake_256(str(i).encode()).hexdigest(4096)
+            with self.subTest(i=i):
+                fast = kcore.wots_address_v2(key)
+                self.assertEqual(self.pure(Wallet.generate_address, key), fast)
+                self.assertEqual(Wallet.generate_address(key), fast)
+
     def test_signature_fragments_match_pure_python_both_directions(self):
         self.require_kcore()
         for t in VECTORS["wots_signature"]["tests"]:
@@ -106,6 +117,9 @@ class IneligibleInputTest(KcoreTestCase):
         key = "a" * 2048
         self.assertIsNone(kcore.wots_address(key[:-1]))
         self.assertIsNone(kcore.wots_address("é" + key[1:]))
+        self.assertIsNone(kcore.wots_address_v2(key))
+        self.assertIsNone(kcore.wots_address("a" * 8192))
+        self.assertIsNone(kcore.wots_address_v2("é" + "a" * 8191))
         self.assertIsNone(kcore.chains_hex(key, [-1] + [8] * 15))
         self.assertIsNone(kcore.chains_hex(key, [65] + [8] * 15))
         self.assertIsNone(kcore.chains_hex(key[:-1], [8] * 16))
