@@ -25,6 +25,7 @@ from knishioclient.models.AuthToken import AuthToken
 from knishioclient.libraries import check, crypto
 from knishioclient.models.Molecule import Molecule
 from knishioclient.models.Wallet import Wallet
+from knishioclient.mutation import MutationProposeMolecule
 
 VECTORS_PATH = SDK_ROOT.parent / 'shared-test-results' / 'ots-v2-vectors.json'
 VECTORS = json.loads(VECTORS_PATH.read_text(encoding='utf-8'))['vectors'] if VECTORS_PATH.exists() else None
@@ -175,6 +176,26 @@ class ClientOtsVersionTest(unittest.TestCase):
         return mock.patch.object(client, 'query_continu_id',
                                  return_value=mock.Mock(payload=lambda: wallet, errors=lambda: None))
 
+    def _address_at(self, token, position, ots_version):
+        return Wallet.generate_address(Wallet.generate_key(self.SECRET, token, position, ots_version))
+
+    @staticmethod
+    def _continu_id_atom(molecule):
+        return next(atom for atom in molecule.atoms if atom.isotope == 'I')
+
+    @staticmethod
+    def _proposals():
+        """Records every signed molecule the client proposes and answers it as accepted."""
+        molecules = []
+        accepted = mock.Mock(success=lambda: True, reason=lambda: None, payload=lambda: None,
+                             auth_token=lambda: 't', pub_key=lambda: None)
+
+        def execute(query, variables=None, fields=None):
+            molecules.append(query.molecule())
+            return accepted
+
+        return molecules, mock.patch.object(MutationProposeMolecule, 'execute', execute)
+
     def test_detect_ots_version_either_preferred_order(self):
         for preferred in (1, 2):
             detect = lambda address: Wallet.detect_ots_version(  # noqa: E731
@@ -268,6 +289,73 @@ class ClientOtsVersionTest(unittest.TestCase):
                                     wallet).get_snapshot()
         del snapshot['wallet']['otsVersion']
         self.assertEqual(AuthToken.restore(snapshot, self.SECRET).get_wallet().ots_version, 1)
+
+    def test_v2_client_signing_in_from_a_v1_pointer_registers_a_v2_head(self):
+        client = self._client_at(2)
+        molecules, proposals = self._proposals()
+        with self._continu_id_returns(client, self._ledger_wallet(self.address_v1)), proposals:
+            client.request_profile_auth_token(self.SECRET)
+        self.assertEqual(len(molecules), 1)
+        self.assertEqual(molecules[0].atoms[0].walletAddress, self.address_v1)
+        head = self._continu_id_atom(molecules[0])
+        self.assertEqual(head.walletAddress, self._address_at('USER', head.position, 2))
+        self.assertEqual(client.get_authorization_wallet().ots_version, 1)
+
+    def test_v2_client_signing_from_a_v1_head_registers_a_v2_head(self):
+        client = self._client_at(2)
+        molecules, proposals = self._proposals()
+        with self._continu_id_returns(client, self._ledger_wallet(self.address_v1)), proposals:
+            client.create_meta('ots', 'migrate', {'k': 'v'})
+        self.assertEqual(molecules[0].atoms[0].walletAddress, self.address_v1)
+        head = self._continu_id_atom(molecules[0])
+        self.assertEqual(head.walletAddress, self._address_at('USER', head.position, 2))
+
+    def test_v1_client_signing_from_a_v2_head_keeps_a_v2_head(self):
+        client = self._client_at(1)
+        molecules, proposals = self._proposals()
+        with self._continu_id_returns(client, self._ledger_wallet(self.address_v2)), proposals:
+            client.create_meta('ots', 'keep', {'k': 'v'})
+        self.assertEqual(molecules[0].atoms[0].walletAddress, self.address_v2)
+        head = self._continu_id_atom(molecules[0])
+        self.assertEqual(head.walletAddress, self._address_at('USER', head.position, 2))
+
+    def test_create_remainder_takes_the_higher_ots_version(self):
+        v1 = Wallet(secret=self.SECRET, token='TKN', position=self.POSITION)
+        v2 = Wallet(secret=self.SECRET, token='TKN', position=self.POSITION, ots_version=2)
+        self.assertEqual(v1.create_remainder(self.SECRET).ots_version, 1)
+        self.assertEqual(v1.create_remainder(self.SECRET, 2).ots_version, 2)
+        self.assertEqual(v2.create_remainder(self.SECRET, 1).ots_version, 2)
+        with self.assertRaisesRegex(ValueError, r'^KnishIO: unsupported OTS version 3; expected 1 or 2\.$'):
+            v1.create_remainder(self.SECRET, 3)
+
+    def test_molecule_signer_wallets_take_the_higher_ots_version(self):
+        source_wallet = Wallet(secret=self.SECRET, token='TKN', position=self.POSITION)
+        source_wallet.balance = 10
+        molecule = Molecule(secret=self.SECRET, source_wallet=source_wallet, min_ots_version=2)
+        self.assertEqual(molecule.signing_ots_version(), 1)
+        self.assertEqual(molecule.successor_ots_version(), 2)
+        self.assertEqual(molecule.remainderWallet.ots_version, 2)
+
+        molecule.init_deposit_buffer(4, {})
+        buffer = next(atom for atom in molecule.atoms if atom.isotope == 'B')
+        self.assertEqual(buffer.walletAddress, self._address_at('TKN', buffer.position, 2))
+        self.assertEqual(Molecule(secret=self.SECRET, source_wallet=source_wallet).successor_ots_version(), 1)
+
+    def test_v2_client_transferring_from_a_v1_token_wallet_creates_a_v2_remainder(self):
+        token_position = 'd' * 64
+        token_wallet = Wallet(secret=None, token='TKN', position=token_position,
+                              address=self._address_at('TKN', token_position, 1))
+        token_wallet.balance = 100
+        client = self._client_at(2)
+        balances = [mock.Mock(payload=lambda: token_wallet), mock.Mock(payload=lambda: None)]
+        molecules, proposals = self._proposals()
+        with mock.patch.object(client, 'query_balance', side_effect=balances), proposals:
+            client.transfer_token(Wallet.create(secret='e' * 2048).bundle, 'TKN', 10)
+        molecule = molecules[0]
+        self.assertEqual(molecule.atoms[0].walletAddress, token_wallet.address)
+        remainder = next(atom for index, atom in enumerate(molecule.atoms)
+                         if index > 0 and atom.isotope == 'V' and atom.token == 'TKN' and atom.position)
+        self.assertEqual(remainder.walletAddress, self._address_at('TKN', remainder.position, 2))
 
 
 if __name__ == '__main__':

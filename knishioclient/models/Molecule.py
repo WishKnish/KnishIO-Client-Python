@@ -29,13 +29,16 @@ class Molecule(MoleculeStructure):
             remainder_wallet: Wallet = None,
             cell_slug: str = None,
             continu_id_position: str = None,
-            mlkem_param_set: int = None
+            mlkem_param_set: int = None,
+            min_ots_version: int = 1
     ) -> None:
         """
         :param secret:
         :param source_wallet:
         :param remainder_wallet:
         :param cell_slug:
+        :param min_ots_version: lowest OTS version (1 or 2) for the wallets this molecule creates
+            for its signer; see successor_ots_version()
         """
         super(Molecule, self).__init__(cell_slug)
         self.clear()
@@ -44,6 +47,7 @@ class Molecule(MoleculeStructure):
         self.__secret: str | None = secret
         self.sourceWallet: Wallet | None = source_wallet
         self.continuIdPosition: str | None = continu_id_position
+        self.minOtsVersion: int = Wallet.checked_ots_version(min_ots_version)
 
         self.mlkem_param_set = mlkem_param_set or (source_wallet.mlkem_param_set if source_wallet and hasattr(source_wallet, 'mlkem_param_set') else 1024)
         if remainder_wallet or source_wallet:
@@ -54,7 +58,7 @@ class Molecule(MoleculeStructure):
                 batch_id=source_wallet.batchId,
                 characters=source_wallet.characters,
                 mlkem_param_set=self.mlkem_param_set,
-                ots_version=self.signing_ots_version()
+                ots_version=self.successor_ots_version()
             )
 
     @property
@@ -1148,7 +1152,7 @@ class Molecule(MoleculeStructure):
             token=self.sourceWallet.token,
             batch_id=self.sourceWallet.batchId,
             mlkem_param_set=self.mlkem_param_set,
-            ots_version=self.signing_ots_version()
+            ots_version=self.successor_ots_version()
         )
         if trade_rates:
             buffer_wallet.tradeRates = trade_rates
@@ -1326,6 +1330,15 @@ class Molecule(MoleculeStructure):
         """
         source_wallet = getattr(self, 'sourceWallet', None)
         return getattr(source_wallet, 'ots_version', 1) if source_wallet is not None else 1
+
+    def successor_ots_version(self) -> int:
+        """
+        OTS version of the wallets this molecule creates for its signer (remainder, ContinuID,
+        buffer): the higher of the signing version and min_ots_version.
+
+        :return: int
+        """
+        return max(self.signing_ots_version(), getattr(self, 'minOtsVersion', 1))
 
     def sign(self, anonymous: bool = False, compressed: bool = True) -> str | bytes | None:
         """

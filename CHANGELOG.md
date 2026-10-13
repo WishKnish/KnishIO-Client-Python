@@ -24,6 +24,11 @@ detail, the entry says so instead of guessing.
   `Wallet.create(..., ots_version=)`, `Wallet.generate_key(secret, token, position, ots_version=1)`
   and `Wallet.ots_version` (default 1). Any other version raises `ValueError`.
 - `Molecule.signing_ots_version()`: the source wallet's version, or 1 without a source wallet.
+- `Molecule(..., min_ots_version=1)` and `Molecule.successor_ots_version()`: the remainder and
+  buffer wallets a molecule creates for its signer take the higher of the signing version and
+  `min_ots_version`.
+- `Wallet.create_remainder(secret, min_ots_version=1)`: the remainder takes the higher of the
+  wallet's version and `min_ots_version`.
 - `crypto.is_signable_hash(value)`: true for exactly 64 characters of `[0-9a-g]`.
 - **Client-level OTS version.** `KnishIOClient(..., ots_version=1|2)` (1 default),
   `get_ots_version()`, the `ots_version` property and `set_ots_version()`. Keys the client creates
@@ -42,8 +47,11 @@ detail, the entry says so instead of guessing.
   decoded strictly, and an undecodable or wrongly sized signature raises `SignatureMalformedException`.
 - A declared molecular hash that is not 64 characters of `[0-9a-g]` raises
   `SignatureMalformedException` in `check.ots()` and in `Molecule.sign()`.
-- Remainder and buffer wallets created for a signer (`Molecule` constructor, deposit buffer,
-  `Wallet.create_remainder`, `KnishIOClient.create_molecule`) keep the source wallet's OTS version.
+- `KnishIOClient.create_molecule()` creates its default remainder wallet at the higher of the
+  source wallet's and the client's OTS version.
+- A client set to `ots_version=2` creates the ContinuID head, token remainders and deposit buffer
+  of every molecule it signs at version 2, so an identity created at version 1 moves to version 2
+  on its next sign-in or molecule. A client at version 1 keeps a version 2 identity at version 2.
 - `Wallet.generate_key` raises `WalletCredentialException` for an empty secret or position.
 - The kcore chain walk in `MoleculeStructure.signature_fragments` covers 16 or 64 chains, and
   `Wallet.generate_address` computes the 64 chain endpoints of a v2 key through kcore.
@@ -53,7 +61,8 @@ detail, the entry says so instead of guessing.
   `fuse_token()` sign from) are used at the OTS version their address was derived at.
   `get_source_wallet()` and those balance wallets raise `WalletCredentialException` when neither
   version derives the address; the login pointer falls back to an AUTH wallet as before.
-- The USER remainder of a profile authorization keeps the signing wallet's OTS version.
+- The USER remainder of a profile authorization takes the higher of the signing wallet's and the
+  client's OTS version.
 - `cryptography` 50.0.2 and `cffi` 2.1.1; the build requires setuptools ≥ 84; development tools
   ruff ≥ 0.16.10 and build ≥ 1.6.1.
 

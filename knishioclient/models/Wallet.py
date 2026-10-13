@@ -228,9 +228,12 @@ class Wallet(object):
             ots_version=ots_version
         )
 
-    def create_remainder(self, secret: str):
+    def create_remainder(self, secret: str, min_ots_version: int = 1):
+        """A remainder wallet for this one. Its OTS version is the higher of this wallet's and
+        ``min_ots_version`` (1 or 2)."""
+        ots_version = max(self.ots_version, Wallet.checked_ots_version(min_ots_version))
         remainder_wallet = Wallet.create(secret, token=self.token, characters=self.characters,
-                                         ots_version=self.ots_version)
+                                         ots_version=ots_version)
         remainder_wallet.init_batch_id(self, is_remainder=True)
         return remainder_wallet
 

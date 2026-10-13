@@ -271,10 +271,12 @@ class KnishIOClient(object):
         if source_wallet is None:
             source_wallet = self.get_source_wallet()
 
+        # The remainder is never below the client's OTS version, so a client set to v2 moves the
+        # identity's successor wallets to v2
         self.__remainder_wallet = remainder_wallet or Wallet.create(
             secret, bundle, source_wallet.token, source_wallet.batchId, source_wallet.characters,
             mlkem_param_set=self.get_mlkem_parameter_set(),
-            ots_version=getattr(source_wallet, 'ots_version', 1)
+            ots_version=max(getattr(source_wallet, 'ots_version', 1), self.get_ots_version())
         )
         molecule = Molecule(
             secret=secret,
@@ -282,7 +284,8 @@ class KnishIOClient(object):
             source_wallet=source_wallet,
             remainder_wallet=self.get_remainder_wallet(),
             cell_slug=self.cell_slug(),
-            mlkem_param_set=self.get_mlkem_parameter_set()
+            mlkem_param_set=self.get_mlkem_parameter_set(),
+            min_ots_version=self.get_ots_version()
         )
         return molecule
     def create_molecule_mutation(self, mutation_class, molecule: Molecule = None) -> Mutation:
@@ -577,7 +580,7 @@ class KnishIOClient(object):
             to_wallet.init_batch_id(from_wallet)
 
         # Canonical remainder (mirrors the JS/PHP reference; carries source token/characters)
-        remainder_wallet = from_wallet.create_remainder(self.secret())
+        remainder_wallet = from_wallet.create_remainder(self.secret(), self.get_ots_version())
 
         # Stackable (NFT) transfer: partition the source's tokenUnits across source (SENT),
         # recipient (SENT) and remainder (KEPT) BEFORE the molecule is built, so init_value reads
@@ -632,7 +635,7 @@ class KnishIOClient(object):
             recipient_wallets.append(recipient_wallet)
 
         # Canonical remainder (carries the source's token/characters; reuses the source batch id)
-        remainder_wallet = from_wallet.create_remainder(self.secret())
+        remainder_wallet = from_wallet.create_remainder(self.secret(), self.get_ots_version())
 
         # Stackable (NFT): partition the source's tokenUnits across source (SENT union),
         # each recipient (its subset), and remainder (KEPT) BEFORE the molecule is built.
@@ -727,7 +730,7 @@ class KnishIOClient(object):
                 raise BalanceInsufficientException(f'Insufficient balance for token {token_slug}')
         
         # Create remainder wallet
-        remainder_wallet = source_wallet.create_remainder(self.secret())
+        remainder_wallet = source_wallet.create_remainder(self.secret(), self.get_ots_version())
         
         # Build the molecule
         molecule = self.create_molecule(
@@ -761,7 +764,7 @@ class KnishIOClient(object):
         # The remainder is a FRESH position: the source's own key is consumed by this signature.
         molecule = self.create_molecule(
             source_wallet=source_wallet,
-            remainder_wallet=source_wallet.create_remainder(self.secret())
+            remainder_wallet=source_wallet.create_remainder(self.secret(), self.get_ots_version())
         )
 
         query = self.create_molecule_mutation(MutationWithdrawBufferToken, molecule)
@@ -796,7 +799,7 @@ class KnishIOClient(object):
         # Canonical remainder (mirrors transfer_token / the JS/PHP reference; carries source
         # token/characters). The prior manual Wallet(secret=..., batchId=...) was broken:
         # `batchId` is not a ctor kwarg (it is `batch_id`) and `secret=` re-derives a position.
-        remainder_wallet = from_wallet.create_remainder(self.secret())
+        remainder_wallet = from_wallet.create_remainder(self.secret(), self.get_ots_version())
 
         # Stackable (NFT) burn: partition the source's tokenUnits → source keeps the BURNED units,
         # remainder keeps the rest. No recipient (the units are destroyed). No-op for fungible
@@ -889,7 +892,7 @@ class KnishIOClient(object):
 
         molecule = self.create_molecule(
             source_wallet=source_wallet,
-            remainder_wallet=source_wallet.create_remainder(self.secret())
+            remainder_wallet=source_wallet.create_remainder(self.secret(), self.get_ots_version())
         )
         molecule.init_token_fusion(fused_token_unit_ids, recipient_wallet, new_token_unit)
         molecule.sign()
@@ -1013,7 +1016,7 @@ class KnishIOClient(object):
             self.secret(),
             source_wallet=wallet,
             remainder_wallet=Wallet.create(self.secret(), self.bundle(), 'USER', mlkem_param_set=self.get_mlkem_parameter_set(),
-                                           ots_version=wallet.ots_version)
+                                           ots_version=max(wallet.ots_version, self.get_ots_version()))
         )
 
         # Create auth mutation
