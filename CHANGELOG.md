@@ -22,9 +22,19 @@ detail, the entry says so instead of guessing.
 
 - Opt-in OTS v2 signatures (64 chains, 8192-hex keys): `Wallet(..., ots_version=1|2)`,
   `Wallet.create(..., ots_version=)`, `Wallet.generate_key(secret, token, position, ots_version=1)`
-  and the read-only `Wallet.ots_version` (default 1). Any other version raises `ValueError`.
+  and `Wallet.ots_version` (default 1). Any other version raises `ValueError`.
 - `Molecule.signing_ots_version()`: the source wallet's version, or 1 without a source wallet.
 - `crypto.is_signable_hash(value)`: true for exactly 64 characters of `[0-9a-g]`.
+- **Client-level OTS version.** `KnishIOClient(..., ots_version=1|2)` (1 default),
+  `get_ots_version()`, the `ots_version` property and `set_ots_version()`. Keys the client creates
+  from its secret (the first source wallet, AUTH and guest wallets, `create_wallet`, token and
+  claim wallets) use it.
+- `Wallet.detect_ots_version(secret, token, position, address, preferred=1)`: the OTS version
+  whose derived address equals `address`, or `None`. `Wallet.checked_ots_version()`, and
+  `wallet.set_ots_version()` for a wallet that holds no key.
+- `AuthToken` snapshots carry `wallet.otsVersion`; a snapshot without it restores at 1.
+- `KnishIOClient.get_authorization_wallet()` returns the wallet the current profile session
+  was authorized with.
 
 ### Changed
 
@@ -37,6 +47,13 @@ detail, the entry says so instead of guessing.
 - `Wallet.generate_key` raises `WalletCredentialException` for an empty secret or position.
 - The kcore chain walk in `MoleculeStructure.signature_fragments` covers 16 or 64 chains, and
   `Wallet.generate_address` computes the 64 chain endpoints of a v2 key through kcore.
+- Wallets the ledger returns for this client (the ContinuID head in `get_source_wallet()` and the
+  login pointer, and the balance wallets `transfer_token()`, `transfer_tokens()`,
+  `deposit_buffer_token()`, `withdraw_buffer_token()`, `burn_tokens()`, `replenish_token()` and
+  `fuse_token()` sign from) are used at the OTS version their address was derived at.
+  `get_source_wallet()` and those balance wallets raise `WalletCredentialException` when neither
+  version derives the address; the login pointer falls back to an AUTH wallet as before.
+- The USER remainder of a profile authorization keeps the signing wallet's OTS version.
 
 ### Security
 

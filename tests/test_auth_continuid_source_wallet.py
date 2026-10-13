@@ -98,7 +98,13 @@ class AuthContinuIdSourceWalletTest(unittest.TestCase):
         query = request["query"]
         self.sent.append(query)
         if "ContinuId" in query:
-            return {"data": {"ContinuId": continu_id_wallet(self.bundle)}}
+            # The login pointer query (token USER) keeps the underivable address, so the login
+            # signs from a fresh AUTH wallet; the head the next molecule signs from is this
+            # secret's USER wallet at the pointer position.
+            if request.get("variables", {}).get("token") == "USER":
+                return {"data": {"ContinuId": continu_id_wallet(self.bundle)}}
+            head = Wallet(secret=SECRET, token="USER", position=POINTER_POSITION)
+            return {"data": {"ContinuId": continu_id_wallet(self.bundle, address=head.address)}}
         if "ProposeMolecule" in query:
             return propose_response("accepted")
         raise AssertionError("unexpected request: %s" % query)

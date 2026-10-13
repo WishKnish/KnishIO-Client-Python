@@ -38,9 +38,7 @@ class Wallet(object):
         self.mlkem_param_set: int = int(mlkem_param_set)
         if self.mlkem_param_set not in (1024, 768):
             raise ValueError(f'KnishIO: unsupported ML-KEM parameter set {mlkem_param_set}; expected 1024 or 768.')
-        if isinstance(ots_version, bool) or ots_version not in (1, 2):
-            raise ValueError(f'KnishIO: unsupported OTS version {ots_version}; expected 1 or 2.')
-        self.ots_version: int = int(ots_version)
+        self.ots_version: int = Wallet.checked_ots_version(ots_version)
 
         # Empty values
         self.key: str | bytes | None = None
@@ -61,6 +59,41 @@ class Wallet(object):
             self.key = Wallet.generate_key(secret, self.token, self.position, self.ots_version)
             self.address = self.address or Wallet.generate_address(self.key)
             self.initialize_mlkem()
+
+    @staticmethod
+    def checked_ots_version(ots_version) -> int:
+        """Validates an OTS version (1 or 2) and returns it as an int."""
+        try:
+            version = None if isinstance(ots_version, bool) else int(ots_version)
+        except (TypeError, ValueError):
+            version = None
+        if version not in (1, 2):
+            raise ValueError(f'KnishIO: unsupported OTS version {ots_version}; expected 1 or 2.')
+        return version
+
+    def set_ots_version(self, ots_version) -> 'Wallet':
+        """Sets the OTS version of a wallet that holds no key (e.g. a wallet rebuilt from ledger
+        data). A keyed wallet keeps the version its key was derived at."""
+        version = Wallet.checked_ots_version(ots_version)
+        if self.key and version != self.ots_version:
+            raise ValueError('KnishIO: cannot change the OTS version of a keyed wallet.')
+        self.ots_version = version
+        return self
+
+    @classmethod
+    def detect_ots_version(cls, secret: str, token: str, position: str, address: str,
+                           preferred: int = 1) -> int | None:
+        """The OTS version whose key, derived from secret, token and position, has the given
+        address; tries ``preferred`` first, then the other version. None when neither matches."""
+        if not secret or not position or not address:
+            return None
+        first = cls.checked_ots_version(preferred)
+        wanted = address.lower()
+        for version in (first, 2 if first == 1 else 1):
+            key = cls.generate_key(secret, token, position, version)
+            if cls.generate_address(key) == wanted:
+                return version
+        return None
 
     def _derive_mlkem_keypair(self, param_set: int) -> tuple[bytes, bytes] | None:
         """Derive an ML-KEM keypair at an arbitrary parameter set from this wallet's key seed,

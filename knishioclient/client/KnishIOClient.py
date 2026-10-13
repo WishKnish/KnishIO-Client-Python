@@ -11,7 +11,8 @@ from ..exception import (
     NegativeMeaningException,
     BalanceInsufficientException,
     StackableUnitAmountException,
-    InvalidResponseException
+    InvalidResponseException,
+    WalletCredentialException
 )
 from ..query import (
     Query,
@@ -72,7 +73,8 @@ class KnishIOClient(object):
         logging: bool = False,
         mlkem_param_set: int = 1024,
         secret_storage=None,
-        secretStorage=None
+        secretStorage=None,
+        ots_version: int = 1
     ):
         self.__client = None
         self.__cell_slug = None
@@ -85,10 +87,11 @@ class KnishIOClient(object):
         self.__logging = False
         self.__server_sdk_version = 3
         self.__mlkem_param_set = 1024
+        self.__ots_version = 1
         self.__secret_storage = None
 
         storage = secretStorage if secretStorage is not None else secret_storage
-        self.initialize(url, client, server_sdk_version, logging, mlkem_param_set, storage)
+        self.initialize(url, client, server_sdk_version, logging, mlkem_param_set, storage, ots_version)
 
     def initialize(
         self,
@@ -97,7 +100,8 @@ class KnishIOClient(object):
         server_sdk_version: int = 3,
         logging: bool = False,
         mlkem_param_set: int = 1024,
-        secret_storage=None
+        secret_storage=None,
+        ots_version: int = 1
     ):
         self.reset()
         self.__logging = logging
@@ -108,6 +112,7 @@ class KnishIOClient(object):
         # accepted values FIPS 203 does not define (e.g. 512), which then failed far away in
         # the ML-KEM bridge with a cryptic error instead of at the entry point.
         self.set_mlkem_parameter_set(mlkem_param_set)
+        self.set_ots_version(ots_version)
 
     def deinitialize(self):
         self.reset()
@@ -126,6 +131,37 @@ class KnishIOClient(object):
             raise ValueError(f'KnishIO: unsupported ML-KEM parameter set {param_set}; expected 1024 or 768.')
         self.__mlkem_param_set = param_num
         return self
+
+    def get_ots_version(self) -> int:
+        """OTS version of the keys this client creates from its secret (1 default, or 2)."""
+        return getattr(self, '_KnishIOClient__ots_version', 1)
+
+    @property
+    def ots_version(self) -> int:
+        return self.get_ots_version()
+
+    def set_ots_version(self, ots_version: int):
+        """Sets the OTS version of the keys this client creates from its secret. Wallets the
+        ledger returns keep the version their address was derived at."""
+        self.__ots_version = Wallet.checked_ots_version(ots_version)
+        return self
+
+    def _bind_own_wallet_ots_version(self, wallet: Wallet) -> Wallet:
+        """Sets the OTS version of one of this client's own wallets returned by the ledger, from
+        the address it was derived at; the client's version when the wallet has no position or
+        address."""
+        if not wallet.position or not wallet.address:
+            return wallet.set_ots_version(self.get_ots_version())
+        ots_version = Wallet.detect_ots_version(
+            self.retrieve_secret() or self.secret(), wallet.token, wallet.position, wallet.address,
+            self.get_ots_version()
+        )
+        if ots_version is None:
+            raise WalletCredentialException(
+                f'KnishIO: wallet {wallet.address} is not derived from this secret at position '
+                f'{wallet.position} under OTS version 1 or 2.'
+            )
+        return wallet.set_ots_version(ots_version)
 
     def bundle(self) -> str:
         if self.__bundle is None:
@@ -278,7 +314,10 @@ class KnishIOClient(object):
 
         if source_wallet is None:
             secret_val = self.retrieve_secret() or self.secret()
-            source_wallet = Wallet(secret_val, mlkem_param_set=self.get_mlkem_parameter_set())
+            source_wallet = Wallet(secret_val, mlkem_param_set=self.get_mlkem_parameter_set(),
+                                   ots_version=self.get_ots_version())
+        else:
+            self._bind_own_wallet_ots_version(source_wallet)
 
         return source_wallet
 
@@ -374,7 +413,8 @@ class KnishIOClient(object):
         return query.execute(variables, fields).payload()
 
     def create_wallet(self, token_slug: str):
-        new_wallet = Wallet(self.secret(), token_slug, mlkem_param_set=self.get_mlkem_parameter_set())
+        new_wallet = Wallet(self.secret(), token_slug, mlkem_param_set=self.get_mlkem_parameter_set(),
+                            ots_version=self.get_ots_version())
         query = self.create_molecule_mutation(MutationCreateWallet)
         query.fill_molecule(new_wallet)
 
@@ -417,7 +457,8 @@ class KnishIOClient(object):
         # Wallet(secret, bundle, token, …) — token_slug MUST be the `token` kwarg, not the 2nd
         # positional (which is `bundle`). The positional form left token='USER' (the default) +
         # bundle=token_slug, so create_token always tried to create token 'USER' ("already exists").
-        recipient_wallet = Wallet(self.secret(), token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set())
+        recipient_wallet = Wallet(self.secret(), token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set(),
+                                  ots_version=self.get_ots_version())
 
         # Read the fungibility meta with a plain dict.get: array_get() deliberately returns its
         # default for STRING leaf values (it navigates into nested objects), so it returned None
@@ -462,7 +503,8 @@ class KnishIOClient(object):
                     meta_type = 'walletbundle'
                     meta_id = to
                 else:
-                    to = Wallet.create(to, token_slug, mlkem_param_set=self.get_mlkem_parameter_set())
+                    to = Wallet.create(to, token_slug, mlkem_param_set=self.get_mlkem_parameter_set(),
+                                       ots_version=self.get_ots_version())
             if isinstance(to, Wallet):
                 meta_type = 'wallet'
                 data_metas.update({
@@ -496,7 +538,7 @@ class KnishIOClient(object):
 
     def claim_shadow_wallet(self, token_slug: str, batch_id: str, molecule: Molecule = None):
         query = self.create_molecule_mutation(MutationClaimShadowWallet, molecule)
-        query.fill_molecule(token_slug, batch_id)
+        query.fill_molecule(token_slug, batch_id, ots_version=self.get_ots_version())
 
         return query.execute()
 
@@ -515,6 +557,8 @@ class KnishIOClient(object):
         # was doubly wrong: query_bundle already returns the payload, and it treated token_slug
         # as the bundle_hash arg.
         from_wallet = self.query_balance(token_slug).payload()
+        if from_wallet is not None:
+            self._bind_own_wallet_ots_version(from_wallet)
 
         if from_wallet is None or decimal.cmp(strings.number(from_wallet.balance), amount) < 0:
             raise TransferBalanceException('The transfer amount cannot be greater than the sender\'s balance')
@@ -571,6 +615,8 @@ class KnishIOClient(object):
         # Source = the client's own on-ledger wallet for this token; query_balance().payload()
         # PRESERVES tokenUnits (so the split below operates on the real units).
         from_wallet = self.query_balance(token_slug).payload()
+        if from_wallet is not None:
+            self._bind_own_wallet_ots_version(from_wallet)
 
         if from_wallet is None or decimal.cmp(strings.number(from_wallet.balance), total) < 0:
             raise TransferBalanceException('The transfer amount cannot be greater than the sender\'s balance')
@@ -609,7 +655,8 @@ class KnishIOClient(object):
 
     def extracting_authorization_wallet(self, molecule: Molecule):
         atom = get_signed_atom(molecule)
-        return Wallet(self.secret(), atom.token, atom.position, mlkem_param_set=self.get_mlkem_parameter_set()) if atom is not None else None
+        return Wallet(self.secret(), atom.token, atom.position, mlkem_param_set=self.get_mlkem_parameter_set(),
+                      ots_version=molecule.signing_ots_version()) if atom is not None else None
     
     def query_batch(self, batch_id: str = None):
         """Query batch information"""
@@ -674,6 +721,8 @@ class KnishIOClient(object):
         # Get source wallet if not provided (the regular wallet: .payload() builds the Wallet)
         if source_wallet is None:
             source_wallet = self.query_balance(token_slug, self.bundle()).payload()
+            if source_wallet is not None:
+                self._bind_own_wallet_ots_version(source_wallet)
             if source_wallet is None or decimal.cmp(strings.number(source_wallet.balance), amount) < 0:
                 raise BalanceInsufficientException(f'Insufficient balance for token {token_slug}')
         
@@ -704,6 +753,8 @@ class KnishIOClient(object):
 
         if source_wallet is None:
             source_wallet = self.query_balance(token_slug, self.bundle(), 'buffer').payload()
+            if source_wallet is not None:
+                self._bind_own_wallet_ots_version(source_wallet)
         if source_wallet is None or decimal.cmp(strings.number(source_wallet.balance), amount) < 0:
             raise BalanceInsufficientException(f'Insufficient buffer balance for token {token_slug}')
 
@@ -734,7 +785,11 @@ class KnishIOClient(object):
         # Resolve the source = the client's on-ledger wallet for this token. Use .payload()
         # (ResponseBalance builds a real Wallet); .data() returns the raw dict, so .balance/
         # .token would fail. Mirrors transfer_token.
-        from_wallet = source_wallet or self.query_balance(token_slug).payload()
+        from_wallet = source_wallet
+        if from_wallet is None:
+            from_wallet = self.query_balance(token_slug).payload()
+            if from_wallet is not None:
+                self._bind_own_wallet_ots_version(from_wallet)
         if from_wallet is None or decimal.cmp(strings.number(from_wallet.balance), amount) < 0:
             raise BalanceInsufficientException('Insufficient balance to burn tokens')
 
@@ -776,6 +831,8 @@ class KnishIOClient(object):
         :return: Response from the mutation
         """
         credited_wallet = self.query_balance(token_slug).payload()
+        if credited_wallet is not None:
+            self._bind_own_wallet_ots_version(credited_wallet)
 
         if not units:
             if amount is None or decimal.cmp(amount, 0) <= 0:
@@ -785,7 +842,8 @@ class KnishIOClient(object):
 
         if credited_wallet is None:
             credited_wallet = Wallet.create(
-                secret=self.secret(), token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set()
+                secret=self.secret(), token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set(),
+                ots_version=self.get_ots_version()
             )
 
         molecule = self.create_molecule()
@@ -813,12 +871,15 @@ class KnishIOClient(object):
         """
         if source_wallet is None:
             source_wallet = self.query_balance(token_slug).payload()
+            if source_wallet is not None:
+                self._bind_own_wallet_ots_version(source_wallet)
         if source_wallet is None or not source_wallet.tokenUnits:
             raise TransferBalanceException('Source wallet is missing or has no token units.')
 
         if bundle_hash == self.bundle():
             recipient_wallet = Wallet.create(
-                secret=self.secret(), token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set()
+                secret=self.secret(), token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set(),
+                ots_version=self.get_ots_version()
             )
         else:
             recipient_wallet = Wallet.create(
@@ -853,7 +914,8 @@ class KnishIOClient(object):
         # Create a temporary wallet for guest
         # In Python, we don't have fingerprinting, so use a random secret
         guest_secret = crypto.generate_secret()
-        wallet = Wallet(secret=guest_secret, token='AUTH', mlkem_param_set=self.get_mlkem_parameter_set())
+        wallet = Wallet(secret=guest_secret, token='AUTH', mlkem_param_set=self.get_mlkem_parameter_set(),
+                        ots_version=self.get_ots_version())
         
         # Create the guest auth mutation
         query = self.create_query(MutationRequestAuthorizationGuest)
@@ -898,7 +960,8 @@ class KnishIOClient(object):
             logger.warning('Pointer-signed profile authorization rejected (%s); retrying once from a '
                            'fresh AUTH wallet.', response.reason())
 
-        wallet = Wallet(secret=secret, token='AUTH', mlkem_param_set=self.get_mlkem_parameter_set())
+        wallet = Wallet(secret=secret, token='AUTH', mlkem_param_set=self.get_mlkem_parameter_set(),
+                        ots_version=self.get_ots_version())
         response = self.__propose_profile_authorization(wallet, encrypt)
 
         if response.success():
@@ -923,14 +986,20 @@ class KnishIOClient(object):
         if pointer is None or pointer.token != 'USER' or not pointer.position:
             return None
 
+        # The pointer wallet's OTS version is the one its ledger address was derived at
+        pointer_ots_version = Wallet.detect_ots_version(
+            self.secret(), 'USER', pointer.position, pointer.address, self.get_ots_version()
+        ) if pointer.address else self.get_ots_version()
+        if pointer_ots_version is None:
+            return None
+
         wallet = Wallet(
             secret=self.secret(),
             token='USER',
             position=pointer.position,
-            mlkem_param_set=self.get_mlkem_parameter_set()
+            mlkem_param_set=self.get_mlkem_parameter_set(),
+            ots_version=pointer_ots_version
         )
-        if pointer.address and pointer.address != wallet.address:
-            return None
 
         return wallet
 
@@ -943,7 +1012,8 @@ class KnishIOClient(object):
         molecule = self.create_molecule(
             self.secret(),
             source_wallet=wallet,
-            remainder_wallet=Wallet.create(self.secret(), self.bundle(), 'USER', mlkem_param_set=self.get_mlkem_parameter_set())
+            remainder_wallet=Wallet.create(self.secret(), self.bundle(), 'USER', mlkem_param_set=self.get_mlkem_parameter_set(),
+                                           ots_version=wallet.ots_version)
         )
 
         # Create auth mutation
@@ -964,6 +1034,7 @@ class KnishIOClient(object):
         # decrypts CipherHash responses) into the transport, and set the session encryption flag to
         # match the requested mode.
         self.client().set_auth_data(response.auth_token(), response.pub_key(), wallet)
+        self.__authorization_wallet = wallet
         self.client().set_encryption(encrypt)
         self.__last_molecule_query = None
         return response

@@ -41,8 +41,11 @@ class CipherHashLiveTest(unittest.TestCase):
         param = os.environ.get('CIPHERHASH_MLKEM_PARAMETER_SET')
         if param:
             client.set_mlkem_parameter_set(int(param))
+        ots_version = 2 if os.environ.get('CIPHERHASH_OTS_VERSION') == '2' else 1
+        client.set_ots_version(ots_version)
         client.set_cell_slug('public')   # the active dev cell (TESTCELL is inactive there)
         client.request_auth_token(secret, 'public', encrypt=False)
+        self.assertEqual(client.get_authorization_wallet().ots_version, ots_version)
 
         # Encrypted round-trip: the validator ML-KEM-decrypts the request, executes it, and encrypts
         # the response back to the client's ML-KEM pubkey; the client decrypts it.
@@ -81,8 +84,11 @@ class CipherHashLiveTest(unittest.TestCase):
         param = os.environ.get('CIPHERHASH_MLKEM_PARAMETER_SET')
         if param:
             client.set_mlkem_parameter_set(int(param))
+        ots_version = 2 if os.environ.get('CIPHERHASH_OTS_VERSION') == '2' else 1
+        client.set_ots_version(ots_version)
         client.set_cell_slug('public')
         client.request_auth_token(secret, 'public', encrypt=True)
+        self.assertEqual(client.get_authorization_wallet().ots_version, ots_version)
 
         # The encrypted transport still works for this session.
         self.assertIsNotNone(client.query_balance('USER').payload())

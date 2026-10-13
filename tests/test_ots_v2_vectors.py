@@ -17,7 +17,11 @@ SDK_ROOT = Path(__file__).resolve().parent.parent
 if str(SDK_ROOT) not in sys.path:
     sys.path.insert(0, str(SDK_ROOT))
 
-from knishioclient.exception import SignatureMalformedException, SignatureMismatchException
+from unittest import mock
+
+from knishioclient.client import KnishIOClient
+from knishioclient.exception import SignatureMalformedException, SignatureMismatchException, WalletCredentialException
+from knishioclient.models.AuthToken import AuthToken
 from knishioclient.libraries import check, crypto
 from knishioclient.models.Molecule import Molecule
 from knishioclient.models.Wallet import Wallet
@@ -142,6 +146,128 @@ class OtsV2RoundTripTest(unittest.TestCase):
         molecule.molecularHash = molecule.molecularHash.upper()
         with self.assertRaises(SignatureMalformedException):
             check.ots(molecule)
+
+
+class ClientOtsVersionTest(unittest.TestCase):
+    """Client-level OTS version: the option, version detection for ledger wallets, snapshots."""
+
+    SECRET = crypto.generate_secret('TESTSEED')
+    POSITION = '0123456789abcdeffedcba9876543210fedcba9876543210fedcba9876543210'
+    UNRELATED = 'c' * 64
+
+    @classmethod
+    def setUpClass(cls):
+        cls.key_v1 = Wallet.generate_key(cls.SECRET, 'USER', cls.POSITION, 1)
+        cls.key_v2 = Wallet.generate_key(cls.SECRET, 'USER', cls.POSITION, 2)
+        cls.address_v1 = Wallet.generate_address(cls.key_v1)
+        cls.address_v2 = Wallet.generate_address(cls.key_v2)
+
+    def _ledger_wallet(self, address):
+        return Wallet(secret=None, token='USER', position=self.POSITION, address=address)
+
+    def _client_at(self, ots_version):
+        client = KnishIOClient('http://127.0.0.1:9/graphql', ots_version=ots_version)
+        client.set_secret(self.SECRET)
+        return client
+
+    @staticmethod
+    def _continu_id_returns(client, wallet):
+        return mock.patch.object(client, 'query_continu_id',
+                                 return_value=mock.Mock(payload=lambda: wallet, errors=lambda: None))
+
+    def test_detect_ots_version_either_preferred_order(self):
+        for preferred in (1, 2):
+            detect = lambda address: Wallet.detect_ots_version(  # noqa: E731
+                self.SECRET, 'USER', self.POSITION, address, preferred)
+            self.assertEqual(detect(self.address_v1), 1)
+            self.assertEqual(detect(self.address_v2), 2)
+            self.assertIsNone(detect(self.UNRELATED))
+
+    def test_set_ots_version_on_keyless_and_keyed_wallets(self):
+        self.assertEqual(self._ledger_wallet(self.address_v2).set_ots_version(2).ots_version, 2)
+        keyed = Wallet(secret=self.SECRET, token='USER', position=self.POSITION)
+        with self.assertRaisesRegex(ValueError, r'^KnishIO: cannot change the OTS version of a keyed wallet\.$'):
+            keyed.set_ots_version(2)
+        self.assertEqual(keyed.set_ots_version(1).ots_version, 1)
+
+    def test_client_option_is_validated(self):
+        client = self._client_at(2)
+        self.assertEqual(client.get_ots_version(), 2)
+        self.assertEqual(client.ots_version, 2)
+        self.assertEqual(client.set_ots_version(1).get_ots_version(), 1)
+        with self.assertRaisesRegex(ValueError, r'^KnishIO: unsupported OTS version 3; expected 1 or 2\.$'):
+            KnishIOClient('http://127.0.0.1:9/graphql', ots_version=3)
+
+    def test_new_keys_use_the_client_version(self):
+        client = self._client_at(2)
+
+        # getSourceWallet without a ContinuID
+        with self._continu_id_returns(client, None):
+            source_wallet = client.get_source_wallet()
+        self.assertEqual(source_wallet.ots_version, 2)
+        self.assertEqual(len(source_wallet.key), 8192)
+
+        # createWallet
+        mutation = mock.Mock()
+        with mock.patch.object(client, 'create_molecule_mutation', return_value=mutation):
+            client.create_wallet('TESTTOKEN')
+        new_wallet = mutation.fill_molecule.call_args.args[0]
+        self.assertEqual(new_wallet.ots_version, 2)
+        self.assertEqual(len(new_wallet.key), 8192)
+
+        # AUTH wallet of a first login (no ContinuID pointer)
+        response = mock.Mock(success=lambda: True, auth_token=lambda: 't', pub_key=lambda: None)
+        with self._continu_id_returns(client, None), \
+                mock.patch.object(client, '_KnishIOClient__propose_profile_authorization',
+                                  return_value=response) as propose:
+            client.request_profile_auth_token(self.SECRET)
+        auth_wallet = propose.call_args.args[0]
+        self.assertEqual(auth_wallet.token, 'AUTH')
+        self.assertEqual(auth_wallet.ots_version, 2)
+        self.assertIs(client.get_authorization_wallet(), auth_wallet)
+
+    def test_login_pointer_is_built_at_its_detected_version(self):
+        client = self._client_at(1)
+        response = mock.Mock(success=lambda: True, auth_token=lambda: 't', pub_key=lambda: None)
+        with self._continu_id_returns(client, self._ledger_wallet(self.address_v2)), \
+                mock.patch.object(client, '_KnishIOClient__propose_profile_authorization',
+                                  return_value=response) as propose:
+            client.request_profile_auth_token(self.SECRET)
+        pointer_wallet = propose.call_args.args[0]
+        self.assertEqual(pointer_wallet.token, 'USER')
+        self.assertEqual(pointer_wallet.ots_version, 2)
+        self.assertEqual(pointer_wallet.address, self.address_v2)
+
+    def test_bind_detects_the_version_of_a_ledger_wallet(self):
+        client = self._client_at(1)
+        with self._continu_id_returns(client, self._ledger_wallet(self.address_v2)):
+            source_wallet = client.get_source_wallet()
+        self.assertEqual(source_wallet.ots_version, 2)
+
+    def test_bind_refuses_a_wallet_this_secret_does_not_derive(self):
+        client = self._client_at(1)
+        message = (f'KnishIO: wallet {self.UNRELATED} is not derived from this secret at position '
+                   f'{self.POSITION} under OTS version 1 or 2.')
+        with self._continu_id_returns(client, self._ledger_wallet(self.UNRELATED)):
+            with self.assertRaises(WalletCredentialException) as raised:
+                client.get_source_wallet()
+        self.assertEqual(str(raised.exception), message)
+
+    def test_auth_token_snapshot_keeps_the_wallet_ots_version(self):
+        wallet = Wallet(secret=self.SECRET, token='USER', position=self.POSITION, ots_version=2)
+        snapshot = AuthToken.create({'token': 't', 'expiresAt': 0, 'pubkey': None, 'encrypt': False},
+                                    wallet).get_snapshot()
+        self.assertEqual(snapshot['wallet']['otsVersion'], 2)
+        restored = AuthToken.restore(snapshot, self.SECRET).get_wallet()
+        self.assertEqual(restored.ots_version, 2)
+        self.assertEqual(restored.address, wallet.address)
+
+    def test_snapshot_without_ots_version_restores_at_v1(self):
+        wallet = Wallet(secret=self.SECRET, token='USER', position=self.POSITION, ots_version=2)
+        snapshot = AuthToken.create({'token': 't', 'expiresAt': 0, 'pubkey': None, 'encrypt': False},
+                                    wallet).get_snapshot()
+        del snapshot['wallet']['otsVersion']
+        self.assertEqual(AuthToken.restore(snapshot, self.SECRET).get_wallet().ots_version, 1)
 
 
 if __name__ == '__main__':

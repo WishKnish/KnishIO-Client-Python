@@ -79,6 +79,21 @@ class AuthToken:
         return Wallet.mlkem_param_set_from_pubkey(snapshot.get('pubkey')) or 768
 
     @classmethod
+    def resolve_ots_version(cls, snapshot: Dict[str, Any]) -> int:
+        """
+        OTS version a restored session's wallet must use: the snapshot's explicit field, or 1 for
+        a snapshot written before the field existed (every such session was v1).
+
+        Args:
+            snapshot: Dictionary containing token state and wallet info
+
+        Returns:
+            1 or 2
+        """
+        explicit = (snapshot.get('wallet') or {}).get('otsVersion')
+        return Wallet.checked_ots_version(explicit or 1)
+
+    @classmethod
     def restore(cls, snapshot: Dict[str, Any], secret: str) -> 'AuthToken':
         """
         Restore an AuthToken from a snapshot.
@@ -97,7 +112,8 @@ class AuthToken:
             token=snapshot['wallet'].get('token') or 'AUTH',
             position=snapshot['wallet'].get('position'),
             characters=snapshot['wallet'].get('characters'),
-            mlkem_param_set=cls.resolve_mlkem_param_set(snapshot)
+            mlkem_param_set=cls.resolve_mlkem_param_set(snapshot),
+            ots_version=cls.resolve_ots_version(snapshot)
         )
         
         return cls.create({
@@ -144,7 +160,8 @@ class AuthToken:
                 'token': self.__wallet.token,
                 'position': self.__wallet.position,
                 'characters': self.__wallet.characters,
-                'mlKemParameterSet': self.__wallet.mlkem_param_set
+                'mlKemParameterSet': self.__wallet.mlkem_param_set,
+                'otsVersion': self.__wallet.ots_version
             }
         
         return snapshot
