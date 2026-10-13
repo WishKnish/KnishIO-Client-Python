@@ -18,6 +18,8 @@ detail, the entry says so instead of guessing.
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-10-13
+
 ### Added
 
 - Opt-in OTS v2 signatures (64 chains, 8192-hex keys): `Wallet(..., ots_version=1|2)`,
@@ -536,7 +538,8 @@ published) fixed policy ContinuID signing (F-3) by signing the R-atom from the
 established source wallet. See the git tag history and the
 [PyPI release list](https://pypi.org/project/knishioclient/#history).
 
-[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.4.0...HEAD
+[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.5.0...HEAD
+[1.5.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.5.0
 [1.4.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.4.0
 [1.3.2]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.3.2
 [1.3.1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.3.1
