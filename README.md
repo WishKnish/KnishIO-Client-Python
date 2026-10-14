@@ -20,6 +20,10 @@ pip install knishioclient
 - Node.js 20.19 or higher on the `PATH` (required for ML-KEM quantum-resistant cryptography). The
   wheel bundles the ML-KEM bridge and its pinned `@noble/post-quantum` modules, so a pip install
   needs no `npm` step.
+- The libsodium shared library, which libnacl loads when `knishioclient` is imported: Debian/Ubuntu
+  `apt-get install libsodium23`, Alpine `apk add libsodium`, macOS `brew install libsodium`. On
+  Apple silicon, Homebrew's library directory is not on the default search path, so also export
+  `DYLD_FALLBACK_LIBRARY_PATH="$(brew --prefix libsodium)/lib"`.
 - Virtual environment (recommended)
 - Required packages: numpy, cryptography, libnacl, base58, aiohttp
 
