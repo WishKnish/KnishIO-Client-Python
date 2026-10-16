@@ -29,6 +29,12 @@ detail, the entry says so instead of guessing.
   set). When every atom carries a version, `Atom.hash_atoms` hashes the structured view that
   `Atom.version4_view_json(atoms)` returns. Atoms without a version hash as before.
 
+### Fixed
+
+- `Atom.set_property` decodes only the property named exactly `metasJson`. It used a substring
+  test, so `MoleculeStructure.to_object` and `Atom.array_to_object` raised `TypeError` for an atom
+  whose `meta` (or `metas`) was a list, and names such as `Json` were dropped.
+
 ## [1.5.0] — 2026-10-13
 
 ### Added

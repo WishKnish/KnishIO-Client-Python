@@ -395,7 +395,7 @@ class Atom(Base):
         """
         feature = {'tokenSlug': 'token', 'metas': 'meta'}.get(attribute, attribute)
 
-        if len(self.meta) == 0 and feature in 'metasJson':
+        if len(self.meta) == 0 and feature == 'metasJson':
             try:
                 self.meta = JSONDecoder().decode(value)
             except JSONDecodeError:

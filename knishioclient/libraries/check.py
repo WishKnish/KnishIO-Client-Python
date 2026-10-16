@@ -656,37 +656,28 @@ def from_server_data(data: dict) -> 'models.MoleculeStructure':
     if not isinstance(served_atoms, list) or not all(isinstance(atom, dict) for atom in served_atoms):
         raise ValueError('Served molecule data must carry a list of atom objects')
 
-    molecule = models.MoleculeStructure.to_object({
+    return models.MoleculeStructure.to_object({
         'molecularHash': data.get('molecularHash'),
         'bundle': data.get('bundleHash'),
         'cellSlug': data.get('cellSlug'),
         'status': data.get('status'),
         'createdAt': to_signed_timestamp(data.get('createdAt')),
-        'atoms': [],
+        'atoms': [{
+            'position': served.get('position'),
+            'walletAddress': served.get('walletAddress'),
+            'isotope': served.get('isotope'),
+            'token': served.get('tokenSlug') if 'tokenSlug' in served else served.get('token'),
+            'value': _served_string(served.get('value')),
+            'batchId': served.get('batchId'),
+            'metaType': served.get('metaType'),
+            'metaId': served.get('metaId'),
+            'meta': _served_meta(served.get('metasJson')),
+            'index': served.get('index'),
+            'otsFragment': served.get('otsFragment'),
+            'createdAt': to_signed_timestamp(served.get('createdAt')),
+            'version': _served_string(served.get('version')),
+        } for served in served_atoms],
     })
-
-    atoms = []
-    for served in served_atoms:
-        token = served.get('tokenSlug') if 'tokenSlug' in served else served.get('token')
-        atom = models.Atom(
-            position=served.get('position'),
-            wallet_address=served.get('walletAddress'),
-            isotope=served.get('isotope'),
-            token=token,
-            value=_served_string(served.get('value')),
-            batch_id=served.get('batchId'),
-            meta_type=served.get('metaType'),
-            meta_id=served.get('metaId'),
-            meta=_served_meta(served.get('metasJson')),
-            ots_fragment=served.get('otsFragment'),
-            index=served.get('index'),
-            version=_served_string(served.get('version')),
-        )
-        atom.createdAt = to_signed_timestamp(served.get('createdAt'))
-        atoms.append(atom)
-
-    molecule.atoms = models.Atom.sort_atoms(atoms)
-    return molecule
 
 
 def verify_from_server_data(data: dict) -> dict:
