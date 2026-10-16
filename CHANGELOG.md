@@ -18,6 +18,8 @@ detail, the entry says so instead of guessing.
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-10-16
+
 ### Added
 
 - `check.verify_from_server_data(data)` verifies a molecule exactly as a validator's GraphQL API
@@ -555,7 +557,8 @@ published) fixed policy ContinuID signing (F-3) by signing the R-atom from the
 established source wallet. See the git tag history and the
 [PyPI release list](https://pypi.org/project/knishioclient/#history).
 
-[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.5.0...HEAD
+[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.6.0...HEAD
+[1.6.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.6.0
 [1.5.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.5.0
 [1.4.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.4.0
 [1.3.2]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.3.2
