@@ -1,13 +1,25 @@
 # -*- coding: utf-8 -*-
 
 import json
+import re
 import base64
 import binascii
+from datetime import datetime, timedelta, timezone
 from hashlib import shake_256 as shake
 from ..exception import *
 from ..libraries import strings, decimal, crypto
 from knishioclient import models
-from typing import List
+from typing import Any, List
+
+# Validators serve createdAt as an RFC 3339 string; molecules are signed over epoch milliseconds.
+_RFC3339_TIMESTAMP = re.compile(
+    r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})\Z', re.ASCII
+)
+_DIGITS = re.compile(r'^\d+\Z', re.ASCII)
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+# Atom versions retried, in order, when a molecule is served without atom versions.
+_UNSERVED_ATOM_VERSIONS = ('4', '3')
 
 
 def verify(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
@@ -568,3 +580,142 @@ def missing(molecule: 'Molecule') -> None:
     # Do we even have atoms?
     if len(molecule.atoms) < 1:
         raise AtomsMissingException()
+
+
+def to_signed_timestamp(value: Any) -> str | None:
+    """
+    Normalizes a served createdAt to the epoch-millisecond string molecules are signed over.
+
+    None or "" -> None; an integer -> its decimal string; a digit-only string -> unchanged; an
+    RFC 3339 timestamp -> epoch milliseconds (fraction truncated to 3 digits, offset applied);
+    any other string -> unchanged; any other type -> None.
+
+    :param value: Any
+    :return: str | None
+    """
+    if value is None or value == '':
+        return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if not isinstance(value, str):
+        return None
+    if _DIGITS.match(value):
+        return value
+    match = _RFC3339_TIMESTAMP.match(value)
+    if match is None:
+        return value
+    seconds, fraction, offset = match.groups()
+    fraction = (fraction or '')[:3].ljust(3, '0')
+    try:
+        moment = datetime.fromisoformat(f"{seconds}.{fraction}{'+00:00' if offset == 'Z' else offset}")
+    except ValueError:
+        return value
+    return str((moment - _EPOCH) // timedelta(milliseconds=1))
+
+
+def _served_string(value: Any) -> str | None:
+    """A served scalar as the string it is signed as (JS String(value)); None stays None."""
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    if isinstance(value, float) and value.is_integer() and abs(value) < 1e21:
+        return str(int(value))
+    return str(value)
+
+
+def _served_meta(metas_json: Any) -> List[dict]:
+    """Served metasJson as [{key, value}]: a JSON array is used as is, a JSON object by its entries."""
+    if not isinstance(metas_json, str):
+        return []
+    try:
+        parsed = json.loads(metas_json)
+    except ValueError:
+        return []
+    if isinstance(parsed, dict):
+        items = [{'key': key, 'value': value} for key, value in parsed.items()]
+    elif isinstance(parsed, list):
+        items = [item for item in parsed if isinstance(item, dict)]
+    else:
+        return []
+    return [{'key': item.get('key'), 'value': _served_string(item.get('value'))} for item in items]
+
+
+def from_server_data(data: dict) -> 'models.MoleculeStructure':
+    """
+    Builds a molecule from its GraphQL form (bundleHash, metasJson, tokenSlug, RFC 3339 createdAt,
+    optional atom versions) in the form it was signed in.
+
+    :param data: dict
+    :return: MoleculeStructure
+    :raises ValueError: if the data is not a molecule object with a list of atom objects
+    """
+    if not isinstance(data, dict):
+        raise ValueError('Served molecule data must be an object')
+    served_atoms = data.get('atoms')
+    if not isinstance(served_atoms, list) or not all(isinstance(atom, dict) for atom in served_atoms):
+        raise ValueError('Served molecule data must carry a list of atom objects')
+
+    molecule = models.MoleculeStructure.to_object({
+        'molecularHash': data.get('molecularHash'),
+        'bundle': data.get('bundleHash'),
+        'cellSlug': data.get('cellSlug'),
+        'status': data.get('status'),
+        'createdAt': to_signed_timestamp(data.get('createdAt')),
+        'atoms': [],
+    })
+
+    atoms = []
+    for served in served_atoms:
+        token = served.get('tokenSlug') if 'tokenSlug' in served else served.get('token')
+        atom = models.Atom(
+            position=served.get('position'),
+            wallet_address=served.get('walletAddress'),
+            isotope=served.get('isotope'),
+            token=token,
+            value=_served_string(served.get('value')),
+            batch_id=served.get('batchId'),
+            meta_type=served.get('metaType'),
+            meta_id=served.get('metaId'),
+            meta=_served_meta(served.get('metasJson')),
+            ots_fragment=served.get('otsFragment'),
+            index=served.get('index'),
+            version=_served_string(served.get('version')),
+        )
+        atom.createdAt = to_signed_timestamp(served.get('createdAt'))
+        atoms.append(atom)
+
+    molecule.atoms = models.Atom.sort_atoms(atoms)
+    return molecule
+
+
+def verify_from_server_data(data: dict) -> dict:
+    """
+    Verifies a molecule exactly as a validator's GraphQL API serves it. A molecule served without
+    atom versions whose hash does not match is rebuilt with version "4", then "3", on every atom.
+
+    :param data: dict
+    :return: dict with keys molecularHash, verified and error (None when verified)
+    """
+    molecular_hash = data.get('molecularHash') if isinstance(data, dict) else None
+
+    def attempt(served) -> tuple[dict, bool]:
+        try:
+            verify(from_server_data(served))
+            return {'molecularHash': molecular_hash, 'verified': True, 'error': None}, False
+        except MolecularHashMismatchException as error:
+            return {'molecularHash': molecular_hash, 'verified': False, 'error': str(error)}, True
+        except Exception as error:
+            return {'molecularHash': molecular_hash, 'verified': False, 'error': str(error) or repr(error)}, False
+
+    result, hash_mismatch = attempt(data)
+    if result['verified'] or not hash_mismatch:
+        return result
+    if any(atom.get('version') is not None for atom in data['atoms']):
+        return result
+
+    for version in _UNSERVED_ATOM_VERSIONS:
+        result, _ = attempt({**data, 'atoms': [{**atom, 'version': version} for atom in data['atoms']]})
+        if result['verified']:
+            break
+    return result

@@ -25,6 +25,17 @@ def _format_value(value: 'str | int | float') -> str:
     return str(value)
 
 
+def _view_string(value: Any) -> str | None:
+    """A Version4 view value: None stays None, bytes are decoded, anything else is its string."""
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return strings.decode(value)
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    return _format_value(value)
+
+
 class Atom(Base):
     """class Atom"""
 
@@ -41,12 +52,13 @@ class Atom(Base):
     index: int
     otsFragment: str | bytes | None
     createdAt: str
+    version: str | None
 
     def __init__(self, position: str, wallet_address: str, isotope: str, token: str = None,
                  value: str | int | float | None = None, batch_id: str = None, meta_type: str = None,
                  meta_id: str = None,
                  meta: List[Dict[str, str | int | float]] | Dict[str, str | int | float] = None,
-                 ots_fragment: str = None, index: int = None) -> None:
+                 ots_fragment: str = None, index: int = None, version: str | None = None) -> None:
         self.position = position
         self.walletAddress = wallet_address
         self.isotope = isotope
@@ -60,6 +72,7 @@ class Atom(Base):
 
         self.index = index
         self.otsFragment = ots_fragment
+        self.version = version
         
         # Support deterministic testing with KNISHIO_FIXED_TIMESTAMP environment variable
         import os
@@ -156,6 +169,10 @@ class Atom(Base):
                 'createdAt': self.createdAt
             }
 
+            # The atom version is part of the wire format only when the atom carries one
+            if self.version is not None:
+                serialized['version'] = self.version
+
             # Optional OTS fragments (can be large, so optional)
             if include_ots_fragments and self.otsFragment:
                 serialized['otsFragment'] = self.otsFragment
@@ -209,7 +226,8 @@ class Atom(Base):
                 meta_type=data.get('metaType'),
                 meta_id=data.get('metaId'),
                 meta=data.get('meta', []),
-                index=data.get('index', 0)
+                index=data.get('index', 0),
+                version=None if data.get('version') is None else str(data['version'])
             )
 
             # Set additional properties that may not be in constructor
@@ -224,16 +242,80 @@ class Atom(Base):
             raise Exception(f"Atom deserialization failed: {str(e)}")
 
     @classmethod
+    def version4_view_json(cls, atoms: List['Atom']) -> str:
+        """
+        The exact string the Version4 molecular hash absorbs: the atoms sorted by index, each as an
+        array of single-key objects in the fixed key order below, written as compact JSON.
+
+        :param atoms: List[Atom]
+        :return: str
+        """
+        views = []
+        for atom in Atom.sort_atoms(atoms):
+            meta = Meta.normalize_meta(atom.meta) if atom.meta else []
+            views.append([
+                {'batchId': _view_string(atom.batchId)},
+                {'createdAt': _view_string(atom.createdAt)},
+                {'index': atom.index},
+                {'isotope': _view_string(atom.isotope)},
+                {'meta': [
+                    [{'key': _view_string(item.get('key'))}, {'value': _view_string(item.get('value'))}]
+                    for item in meta
+                ]},
+                {'metaId': _view_string(atom.metaId)},
+                {'metaType': _view_string(atom.metaType)},
+                {'position': _view_string(atom.position)},
+                {'token': _view_string(atom.token)},
+                {'value': _view_string(atom.value)},
+                {'version': _view_string(atom.version)},
+                {'walletAddress': _view_string(atom.walletAddress)},
+            ])
+        return json.dumps(views, separators=(',', ':'), ensure_ascii=False)
+
+    @classmethod
     def hash_atoms(cls, atoms: List['Atom'], output: str = 'base17') -> str | None | List:
         """
-        Generate molecular hash from atoms using proven C SDK pattern for cross-platform compatibility.
-        
+        Generate the molecular hash of the atoms. When every atom carries a version (any value), the
+        hash absorbs the Version4 view (version4_view_json); otherwise it follows the C SDK pattern.
+
         :param atoms: List[Atom]
         :param output: str default base17
         :return: str | None | List
         """
-        atom_list = Atom.sort_atoms(atoms)
         molecular_sponge = shake()
+
+        if atoms and all(getattr(atom, 'version', None) is not None for atom in atoms):
+            molecular_sponge.update(strings.encode(Atom.version4_view_json(atoms)))
+        else:
+            cls._absorb_legacy(molecular_sponge, atoms)
+
+        target = None
+
+        if output in ['hex']:
+            target = molecular_sponge.hexdigest(32)
+        elif output in ['array']:
+            target = list(molecular_sponge.hexdigest(32))
+        elif output in ['base17']:
+            hex_hash = molecular_sponge.hexdigest(32)
+            target = strings.charset_base_convert(
+                hex_hash, 16, 17, '0123456789abcdef', '0123456789abcdefg'
+            )
+
+            # Ensure base17 result is exactly 64 characters with proper padding (matching C SDK)
+            if isinstance(target, str):
+                target = target.rjust(64, '0')
+
+        return target
+
+    @classmethod
+    def _absorb_legacy(cls, molecular_sponge, atoms: List['Atom']) -> None:
+        """
+        Absorb the atoms into the sponge using the proven C SDK pattern for cross-platform compatibility.
+
+        :param molecular_sponge: shake_256
+        :param atoms: List[Atom]
+        """
+        atom_list = Atom.sort_atoms(atoms)
         atom_count_str = str(len(atom_list))
 
         # Process each atom following the exact C SDK pattern
@@ -290,24 +372,6 @@ class Atom(Base):
                 if len(str(created_at_ms)) <= 10:  # Looks like seconds, convert to ms
                     created_at_ms = str(int(created_at_ms) * 1000)
                 molecular_sponge.update(strings.encode(str(created_at_ms)))
-
-        target = None
-
-        if output in ['hex']:
-            target = molecular_sponge.hexdigest(32)
-        elif output in ['array']:
-            target = list(molecular_sponge.hexdigest(32))
-        elif output in ['base17']:
-            hex_hash = molecular_sponge.hexdigest(32)
-            target = strings.charset_base_convert(
-                hex_hash, 16, 17, '0123456789abcdef', '0123456789abcdefg'
-            )
-
-            # Ensure base17 result is exactly 64 characters with proper padding (matching C SDK)
-            if isinstance(target, str):
-                target = target.rjust(64, '0')
-
-        return target
 
     def aggregated_meta(self) -> Dict:
         """

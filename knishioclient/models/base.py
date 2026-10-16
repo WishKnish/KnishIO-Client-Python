@@ -17,7 +17,7 @@ class Coder(JSONEncoder):
         from . import Atom, Molecule, Meta
         
         if isinstance(value, Atom):
-            return {
+            atom = {
                 # position/walletAddress are required Strings in the validator's AtomInput,
                 # but a shadow/batched recipient atom legitimately has neither (None). Coerce
                 # null -> "" on the wire so AtomInput accepts it; hash stays consistent
@@ -35,6 +35,10 @@ class Coder(JSONEncoder):
                 'otsFragment': value.otsFragment,
                 'createdAt': value.createdAt,
             }
+            # The atom version is part of the wire format only when the atom carries one
+            if getattr(value, 'version', None) is not None:
+                atom['version'] = value.version
+            return atom
 
         if isinstance(value, Molecule):
             result = {
