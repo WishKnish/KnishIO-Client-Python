@@ -121,7 +121,7 @@ class ContinuIdRemainderTokenTest(unittest.TestCase):
         self.assertEqual(molecules[0].atoms[0].token, 'AUTH')
         head = continu_id_atom(molecules[0])
         self.assertEqual(head.token, 'USER')
-        self.assertEqual(head.walletAddress, address_at('USER', head.position))
+        self.assertEqual(head.walletAddress, address_at('USER', head.position, 2))
 
 
 if __name__ == '__main__':

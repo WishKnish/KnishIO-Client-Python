@@ -52,7 +52,7 @@ class ReplenishTest(unittest.TestCase):
         metas = meta_dict(c_atom)
         self.assertEqual(meta_keys(c_atom), ["action", "address", "position", "pubkey"])
         self.assertEqual(
-            Wallet(secret=ledger.secret, token=self.TOKEN, position=metas["position"]).address,
+            Wallet(secret=ledger.secret, token=self.TOKEN, position=metas["position"], ots_version=2).address,
             metas["address"],
         )
         self.assertIsNone(c_atom.batchId)

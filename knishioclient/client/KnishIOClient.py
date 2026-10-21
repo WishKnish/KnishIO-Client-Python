@@ -74,7 +74,7 @@ class KnishIOClient(object):
         mlkem_param_set: int = 1024,
         secret_storage=None,
         secretStorage=None,
-        ots_version: int = 1
+        ots_version: int = 2
     ):
         self.__client = None
         self.__cell_slug = None
@@ -87,7 +87,7 @@ class KnishIOClient(object):
         self.__logging = False
         self.__server_sdk_version = 3
         self.__mlkem_param_set = 1024
-        self.__ots_version = 1
+        self.__ots_version = 2
         self.__secret_storage = None
 
         storage = secretStorage if secretStorage is not None else secret_storage
@@ -101,7 +101,7 @@ class KnishIOClient(object):
         logging: bool = False,
         mlkem_param_set: int = 1024,
         secret_storage=None,
-        ots_version: int = 1
+        ots_version: int = 2
     ):
         self.reset()
         self.__logging = logging
@@ -133,8 +133,8 @@ class KnishIOClient(object):
         return self
 
     def get_ots_version(self) -> int:
-        """OTS version of the keys this client creates from its secret (1 default, or 2)."""
-        return getattr(self, '_KnishIOClient__ots_version', 1)
+        """OTS version of the keys this client creates from its secret (2 default, or 1)."""
+        return getattr(self, '_KnishIOClient__ots_version', 2)
 
     @property
     def ots_version(self) -> int:
