@@ -131,3 +131,5 @@ __pycache__/
 bin/node_modules/
 # libkcore fetched by scripts/fetch_kcore.py (platform wheels bundle it; never committed)
 knishioclient/_kcore/
+# CycloneDX SBOM output (.github/scripts/sbom.sh)
+/sbom-out/

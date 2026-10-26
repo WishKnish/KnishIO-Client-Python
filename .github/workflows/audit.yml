@@ -76,3 +76,48 @@ jobs:
           pip-audit -r requirements.lock
           pip-audit -r requirements-dev.txt
           pip-audit -r requirements-dev.lock
+
+  # The shipped graph as a CycloneDX SBOM (pip runtime lock + the bin/ ML-KEM bridge + bundled
+  # libkcore and its pinned upstream commits), re-scanned with OSV against today's advisories.
+  # Same definition as the python-package.yml `sbom` job; nothing is uploaded here.
+  sbom:
+    name: SBOM (CycloneDX) + OSV scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Selftest failure probe
+        if: inputs.selftest_fail
+        run: |
+          echo "::error::Selftest failure probe requested — failing this run deliberately."
+          exit 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.x'
+
+      - name: Set up Node.js (for the ML-KEM noble bridge)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: '20'
+
+      - name: Install the SBOM generator
+        run: python -m pip install cyclonedx-bom==7.5.0
+
+      - name: Generate SBOM
+        run: bash .github/scripts/sbom.sh
+
+      - name: Export SBOM paths
+        run: cat sbom-out/paths.env >> "$GITHUB_ENV"
+
+      - name: OSV scan (SBOM + pinned upstream commits)
+        uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36  # v2.7.0
+        with:
+          scan-args: |-
+            -L
+            ${{ env.SBOM_FILE }}
+            -L
+            osv-scanner:${{ env.OSV_COMMITS_FILE }}

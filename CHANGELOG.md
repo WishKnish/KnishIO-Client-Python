@@ -18,6 +18,12 @@ detail, the entry says so instead of guessing.
 
 ## [Unreleased]
 
+### Added
+
+- CI generates a CycloneDX SBOM (`.github/scripts/sbom.sh`) of `requirements.lock`, the bundled Node ML-KEM
+  bridge and the KnishIO-Crypto-Core library in the platform wheels, and scans it with OSV on every push and
+  weekly. Each GitHub Release attaches it as `knishio-client-python-<version>.cdx.json`.
+
 ## [1.7.0] — 2026-10-21
 
 ### Changed
