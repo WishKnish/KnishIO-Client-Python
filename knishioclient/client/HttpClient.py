@@ -1,15 +1,22 @@
 # -*- coding: utf-8 -*-
 import re
+import os
 import json
 import aiohttp
 import asyncio
+import threading
+import weakref
 from ..models import Coder
-from ..libraries.array import array_get
 from ..exception import CodeException
 
 # PQ-transport Phase E: the canonical ML-KEM CipherHash transport query (matches the Rust
 # validator's CipherHash handler + the other SDKs).
 CIPHER_HASH_QUERY = 'query ( $Hash: String! ) { CipherHash ( Hash: $Hash ) { hash } }'
+
+# A forked child's copies of its parent's loops and sessions. They are never collected: their
+# sockets belong to the parent, and closing them would go through a selector the fork did not
+# carry over.
+_INHERITED_FROM_PARENT = []
 
 
 def _parse_operation(query):
@@ -27,6 +34,61 @@ def _parse_operation(query):
     return op_type, name
 
 
+class _Transport(object):
+    """The client's own event loop, kept running by a background thread, and its one aiohttp session.
+
+    Every request runs here, so the session's keep-alive connections are reused across requests.
+    Opening a session per request (before 1.7.1) cost a TCP connection per request, and a client
+    submitting at a sustained rate left so many sockets in TIME_WAIT that it ran out of local ports
+    ("Cannot assign requested address"). The loop keeps running between requests so that a
+    connection the server closes while idle is noticed (its FIN processed) and dropped from the pool
+    before it could be reused; a loop that only runs during a request would hand out the dead
+    connection and the request would fail with a reset.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._pid = None
+        self._loop = None
+        self._thread = None
+        self._session = None
+
+    def run(self, coro):
+        """Run a coroutine on the client's loop and block until it finishes."""
+        return asyncio.run_coroutine_threadsafe(coro, self._running_loop()).result()
+
+    def session(self):
+        """The client's session; call from a coroutine running on the client's loop."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(json_serialize=Coder().encode)
+        return self._session
+
+    def _running_loop(self):
+        with self._lock:
+            # A forked child inherits the loop object but not the thread running it.
+            if self._loop is None or self._pid != os.getpid():
+                if self._loop is not None:
+                    _INHERITED_FROM_PARENT.append((self._loop, self._session))
+                loop = asyncio.new_event_loop()
+                thread = threading.Thread(target=loop.run_forever, name='knishio-http', daemon=True)
+                thread.start()
+                self._pid, self._loop, self._thread, self._session = os.getpid(), loop, thread, None
+            return self._loop
+
+    def close(self):
+        with self._lock:
+            loop, thread, session = self._loop, self._thread, self._session
+            self._loop = self._thread = self._session = None
+            owned = self._pid == os.getpid()
+        if loop is None or thread is None or not owned:
+            return
+        if session is not None and not session.closed:
+            asyncio.run_coroutine_threadsafe(session.close(), loop).result(5)
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(5)
+        loop.close()
+
+
 class HttpClient(object):
     def __init__(self, url: str):
         self.__xAuthToken = None
@@ -36,6 +98,10 @@ class HttpClient(object):
         self.__encrypt = False
         self.__wallet = None
         self.__pubkey = None
+        self.__transport = _Transport()
+        # Closes the session and stops the loop's thread when the client is collected or the
+        # interpreter exits.
+        self.__close = weakref.finalize(self, self.__transport.close)
 
     def get_url(self):
         return self.__url
@@ -86,34 +152,10 @@ class HttpClient(object):
         return True
 
     def send(self, request: dict, options: dict = None):
-        # Sync-over-async bridge. Three environments to handle:
-        #  1. No event loop in this thread (plain sync caller) → create one.
-        #  2. A non-running loop exists → reuse it (legacy behavior).
-        #  3. A loop is ALREADY RUNNING in this thread (caller is inside asyncio,
-        #     e.g. the enhanced async client API) → run_until_complete would raise
-        #     "This event loop is already running"; execute on a private loop in a
-        #     worker thread instead.
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        if loop.is_running():
-            import concurrent.futures
-
-            def _run_in_fresh_loop():
-                inner_loop = asyncio.new_event_loop()
-                try:
-                    return inner_loop.run_until_complete(self.__send(request, options))
-                finally:
-                    inner_loop.close()
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                return executor.submit(_run_in_fresh_loop).result()
-
-        response = loop.run_until_complete(asyncio.gather(self.__send(request, options)))
-        return array_get(response, '0')
+        # Callers may be plain synchronous code or already inside asyncio (e.g. the enhanced async
+        # client API); either way the request runs on the client's own loop and the caller blocks
+        # on the result.
+        return self.__transport.run(self.__send(request, options))
 
     async def __send(self, request: dict, options: dict = None):
         if options is None:
@@ -147,10 +189,8 @@ class HttpClient(object):
                 'variables': {'Hash': self.__wallet.encrypt_string_ml(json.loads(Coder().encode(request)), self.__pubkey)},
             }
 
-        async with aiohttp.ClientSession(headers=options, json_serialize=Coder().encode) as session:
-            async with session.post(self.get_url(), json=payload, ssl=False) as response:
-                result = await response.json()
-
+        async with self.__transport.session().post(self.get_url(), json=payload, headers=options, ssl=False) as response:
+            result = await response.json()
         if not encrypted:
             return result
 

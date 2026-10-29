@@ -56,17 +56,15 @@ class _FakeSession(object):
     """Stands in for aiohttp.ClientSession and records every payload that reaches the wire."""
 
     sent = []
+    closed = False
 
     def __init__(self, *args, **kwargs):
         pass
 
-    async def __aenter__(self):
-        return self
+    async def close(self):
+        pass
 
-    async def __aexit__(self, *args):
-        return False
-
-    def post(self, url, json=None, ssl=None):
+    def post(self, url, json=None, headers=None, ssl=None):
         _FakeSession.sent.append(json)
         return _FakeResponse()
 

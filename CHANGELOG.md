@@ -24,6 +24,18 @@ detail, the entry says so instead of guessing.
   bridge and the KnishIO-Crypto-Core library in the platform wheels, and scans it with OSV on every push and
   weekly. Each GitHub Release attaches it as `knishio-client-python-<version>.cdx.json`.
 
+### Fixed
+
+- `HttpClient` reuses its TCP connection across requests. Every request used to open its own
+  `aiohttp.ClientSession`, and so a new connection: a client submitting at a sustained rate
+  (about 235 molecules/s from four processes in a test rig) left so many sockets in TIME_WAIT
+  that it ran out of local ports within a minute (`Cannot assign requested address`). Requests
+  now run on an event loop that the client keeps running in a background thread for its
+  lifetime, with one session whose keep-alive connections are reused. Because that loop keeps
+  running between requests, a connection the server or a proxy closes while idle is dropped
+  before it is reused rather than failing the next request. A forked child process starts its
+  own loop. `send()` no longer sets an event loop on the calling thread as a side effect.
+
 ## [1.7.0] — 2026-10-21
 
 ### Changed
