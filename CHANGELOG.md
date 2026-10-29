@@ -18,6 +18,8 @@ detail, the entry says so instead of guessing.
 
 ## [Unreleased]
 
+## [1.7.1] — 2026-10-29
+
 ### Added
 
 - CI generates a CycloneDX SBOM (`.github/scripts/sbom.sh`) of `requirements.lock`, the bundled Node ML-KEM
@@ -586,7 +588,8 @@ published) fixed policy ContinuID signing (F-3) by signing the R-atom from the
 established source wallet. See the git tag history and the
 [PyPI release list](https://pypi.org/project/knishioclient/#history).
 
-[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.7.0...HEAD
+[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.7.1...HEAD
+[1.7.1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.7.1
 [1.7.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.7.0
 [1.6.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.6.0
 [1.5.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.5.0
