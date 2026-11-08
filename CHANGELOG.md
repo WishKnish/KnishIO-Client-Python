@@ -27,6 +27,12 @@ detail, the entry says so instead of guessing.
   atom's `otsFragment` byte for byte. CI's `KNISHIO_KCORE=require` and `=off` pytest runs pin libkcore
   and the pure-Python path to the same bytes.
 
+### Changed
+
+- `aiohttp` 3.14.5; the build requires setuptools ≥ 84.2.1; development tools pytest ≥ 9.2.0 and
+  ruff ≥ 0.17.3. Both lock files are regenerated at `--exclude-newer 2026-11-01T00:00:00Z`, with only
+  those packages moved.
+
 ## [1.7.1] — 2026-10-29
 
 ### Added

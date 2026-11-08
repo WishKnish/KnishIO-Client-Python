@@ -8,7 +8,7 @@
 # `ruff check` + `pytest`) plus pip-audit for the dependency security scan.
 -r requirements.txt
 
-pytest>=9.1.1        # test runner (pytest.ini → testpaths=tests)
-ruff>=0.16.10          # lint gate (config in pyproject.toml [tool.ruff.lint])
+pytest>=9.2.0        # test runner (pytest.ini → testpaths=tests)
+ruff>=0.17.3          # lint gate (config in pyproject.toml [tool.ruff.lint])
 pip-audit>=2.10.1     # dependency vulnerability scan (see README "Dependency security")
 build>=1.6.1         # sdist/wheel build used by the publish workflow
