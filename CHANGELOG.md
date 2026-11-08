@@ -18,6 +18,15 @@ detail, the entry says so instead of guessing.
 
 ## [Unreleased]
 
+### Added
+
+- `tests/test_kcore_parity_vectors.py` checks the 16 cross-SDK kcore parity molecules
+  (`tests/fixtures/kcore-parity-vectors.json`: metadata, value transfer, token creation and wallet
+  creation, at OTS v1 and v2, with distinct and with colliding `createdAt`). Each molecule must verify
+  (molecular hash and OTS signature), and re-signing it must reproduce the molecular hash and every
+  atom's `otsFragment` byte for byte. CI's `KNISHIO_KCORE=require` and `=off` pytest runs pin libkcore
+  and the pure-Python path to the same bytes.
+
 ## [1.7.1] — 2026-10-29
 
 ### Added
