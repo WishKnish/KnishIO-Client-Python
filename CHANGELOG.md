@@ -33,6 +33,17 @@ detail, the entry says so instead of guessing.
   ruff ≥ 0.17.3. Both lock files are regenerated at `--exclude-newer 2026-11-01T00:00:00Z`, with only
   those packages moved.
 
+### Security
+
+- `HttpClient` accepts a reply to a request it wrapped in the CipherHash envelope only as an
+  envelope this wallet decrypts, or as a reply without `data` (absent, `null` or empty), so the
+  validator's `errors` stay visible. A plaintext `data` reply raises
+  `CodeException('CipherHash: plaintext reply to an encrypted request')`; it used to be returned as
+  the answer. An envelope that is malformed, has no entry for this wallet or fails to decrypt raises
+  `CodeException('CipherHash: reply could not be decrypted')`; it used to be returned as the raw
+  envelope. This is the rule the PHP and C SDKs already apply. The plaintext bootstrap operations
+  (`__schema`, `ContinuId`, `AccessToken`, U-isotope `ProposeMolecule`) are unaffected.
+
 ## [1.7.1] — 2026-10-29
 
 ### Added

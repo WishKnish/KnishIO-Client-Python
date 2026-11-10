@@ -194,13 +194,24 @@ class HttpClient(object):
         if not encrypted:
             return result
 
-        # Decrypt the CipherHash response back to the inner GraphQL response dict. (array_get is not
-        # used for the hash because it refuses to return a string leaf.)
+        # A reply to a wrapped request is accepted only as a CipherHash envelope this wallet can
+        # decrypt, or as an errors-only reply (no `data`), so the validator's `errors` stay visible.
+        # Plaintext `data` is never what the validator sends back to an encrypted request (matches
+        # PHP Cipher.php / C client.c). (array_get is not used for the hash because it refuses to
+        # return a string leaf.)
         data = result.get('data') if isinstance(result, dict) else None
         cipher = data.get('CipherHash') if isinstance(data, dict) else None
         hash_value = cipher.get('hash') if isinstance(cipher, dict) else None
-        if not isinstance(hash_value, str):
-            # Plaintext (e.g. a validator-side error response) — return unchanged.
+        if isinstance(hash_value, str):
+            try:
+                decrypted = self.__wallet.decrypt_my_message_ml(json.loads(hash_value))
+            except Exception as e:
+                raise CodeException('CipherHash: reply could not be decrypted') from e
+            if decrypted is None:
+                raise CodeException('CipherHash: reply could not be decrypted')
+            return decrypted
+        if not isinstance(result, dict):
+            raise CodeException('CipherHash: plaintext reply to an encrypted request')
+        if not data:
             return result
-        decrypted = self.__wallet.decrypt_my_message_ml(json.loads(hash_value))
-        return decrypted if decrypted is not None else result
+        raise CodeException('CipherHash: plaintext reply to an encrypted request')

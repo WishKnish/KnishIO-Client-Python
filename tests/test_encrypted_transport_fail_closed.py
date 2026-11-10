@@ -43,7 +43,7 @@ PROPOSE_QUERY = "mutation( $molecule: MoleculeInput! ) { ProposeMolecule( molecu
 
 class _FakeResponse(object):
     async def json(self):
-        return {"data": {}}
+        return _FakeSession.reply
 
     async def __aenter__(self):
         return self
@@ -57,6 +57,8 @@ class _FakeSession(object):
 
     sent = []
     closed = False
+    # What every response answers; tests that need another reply set it after setUp resets it.
+    reply = {"data": {}}
 
     def __init__(self, *args, **kwargs):
         pass
@@ -72,6 +74,7 @@ class _FakeSession(object):
 class EncryptedTransportFailClosedTest(unittest.TestCase):
     def setUp(self):
         _FakeSession.sent = []
+        _FakeSession.reply = {"data": {}}
         patcher = mock.patch("aiohttp.ClientSession", _FakeSession)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -143,6 +146,7 @@ class EncryptedProposeMoleculeTest(unittest.TestCase):
 
     def setUp(self):
         _FakeSession.sent = []
+        _FakeSession.reply = {"data": {}}
         patcher = mock.patch("aiohttp.ClientSession", _FakeSession)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -182,6 +186,47 @@ class EncryptedProposeMoleculeTest(unittest.TestCase):
         atoms = inner["variables"]["molecule"]["atoms"]
         self.assertEqual(["I"], [atom["isotope"] for atom in atoms])
         self.assertEqual(molecule.atoms[0].position, atoms[0]["position"])
+
+
+class EncryptedReplyRuleTest(unittest.TestCase):
+    """A reply to a request this client wrapped in CipherHash is accepted only as an envelope this
+    wallet decrypts, or as an errors-only reply. A plaintext ``data`` reply used to be returned as
+    the answer, so anything able to answer the HTTP request could forge one; an envelope that did
+    not decrypt came back as the raw envelope. PHP (Libraries/Cipher.php) and C (client.c) already
+    refused both."""
+
+    def setUp(self):
+        _FakeSession.sent = []
+        _FakeSession.reply = {"data": {}}
+        patcher = mock.patch("aiohttp.ClientSession", _FakeSession)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        wallet = Wallet(secret=SECRET, token="AUTH")
+        self.client = HttpClient(URL)
+        self.client.set_encryption(True)
+        self.client.set_auth_data("T", pubkey=wallet.pubkey, wallet=wallet)
+
+    def test_plaintext_data_reply_is_rejected(self):
+        _FakeSession.reply = {"data": {"Balance": {"address": "x"}}}
+
+        with self.assertRaises(CodeException) as ctx:
+            self.client.send(BALANCE_REQUEST)
+
+        self.assertEqual("CipherHash: plaintext reply to an encrypted request", str(ctx.exception.args[0]))
+
+    def test_errors_only_reply_passes_through(self):
+        reply = {"data": None, "errors": [{"message": "CipherHash: no envelope addressed to the validator"}]}
+        _FakeSession.reply = reply
+
+        self.assertEqual(reply, self.client.send(BALANCE_REQUEST))
+
+    def test_undecryptable_envelope_is_rejected(self):
+        _FakeSession.reply = {"data": {"CipherHash": {"hash": "{}"}}}
+
+        with self.assertRaises(CodeException) as ctx:
+            self.client.send(BALANCE_REQUEST)
+
+        self.assertEqual("CipherHash: reply could not be decrypted", str(ctx.exception.args[0]))
 
 
 
