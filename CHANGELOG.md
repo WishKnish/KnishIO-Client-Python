@@ -33,6 +33,12 @@ detail, the entry says so instead of guessing.
   ruff ≥ 0.17.3. Both lock files are regenerated at `--exclude-newer 2026-11-01T00:00:00Z`, with only
   those packages moved.
 
+### Removed
+
+- `Query.get_request_body()` and `Molecule.encrypt_message()`. Both called
+  `Wallet.encrypt_my_message()`, which does not exist, so either raised `AttributeError` when
+  called; nothing in the SDK called them. `Wallet.encrypt_message()` is unchanged.
+
 ### Security
 
 - `HttpClient` accepts a reply to a request it wrapped in the CipherHash envelope only as an
@@ -43,6 +49,12 @@ detail, the entry says so instead of guessing.
   `CodeException('CipherHash: reply could not be decrypted')`; it used to be returned as the raw
   envelope. This is the rule the PHP and C SDKs already apply. The plaintext bootstrap operations
   (`__schema`, `ContinuId`, `AccessToken`, U-isotope `ProposeMolecule`) are unaffected.
+- `HttpClient` verifies the server's TLS certificate and hostname by default. Every request used to
+  be posted with `ssl=False`, which turned verification off, so anyone on the network path could
+  present their own certificate and read or change the traffic. Upgrade note: a client talking to a
+  node with a self-signed certificate needs the explicit opt-out
+  `KnishIOClient(url, insecure_tls=True)` (or `HttpClient(url, insecure_tls=True)`), the same
+  option the Rust and C SDKs call `insecure_tls` and the Kotlin and C++ SDKs `insecureTls`.
 
 ## [1.7.1] — 2026-10-29
 

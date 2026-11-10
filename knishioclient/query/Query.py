@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-import knishioclient
-from ..exception import UnauthenticatedException
 from ..response import Response
 
 
@@ -71,20 +69,3 @@ class Query(object):
 
     def variables(self):
         return self.__variables
-
-    def get_request_body(self, fields, variables=None):
-        target = {
-            'query': self.compiled_query(fields),
-            'variables': variables,
-        }
-
-        if isinstance(self, knishioclient.mutation.MutationRequestAuthorization):
-            return target
-
-        wallet = self.knishIO.get_authorization_wallet()
-        server_key = self.knishIO.get_server_key()
-
-        if None not in [wallet, server_key]:
-            return wallet.encrypt_my_message(target, server_key)
-
-        raise UnauthenticatedException('Unauthorized query')

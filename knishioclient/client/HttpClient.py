@@ -90,9 +90,12 @@ class _Transport(object):
 
 
 class HttpClient(object):
-    def __init__(self, url: str):
+    def __init__(self, url: str, insecure_tls: bool = False):
         self.__xAuthToken = None
         self.__url = url
+        # TLS certificates are verified unless the caller opts out (a node with a self-signed
+        # certificate); the Rust and C SDKs call the same option insecure_tls, Kotlin and C++ insecureTls.
+        self.__insecure_tls = bool(insecure_tls)
         # PQ-transport Phase E: encrypted-transport state (wallet = the AUTH source wallet that
         # decrypts CipherHash responses; pubkey = the validator's advertised ML-KEM pubkey).
         self.__encrypt = False
@@ -189,7 +192,10 @@ class HttpClient(object):
                 'variables': {'Hash': self.__wallet.encrypt_string_ml(json.loads(Coder().encode(request)), self.__pubkey)},
             }
 
-        async with self.__transport.session().post(self.get_url(), json=payload, headers=options, ssl=False) as response:
+        request_kwargs = {'json': payload, 'headers': options}
+        if self.__insecure_tls:
+            request_kwargs['ssl'] = False
+        async with self.__transport.session().post(self.get_url(), **request_kwargs) as response:
             result = await response.json()
         if not encrypted:
             return result

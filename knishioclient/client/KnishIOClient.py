@@ -74,7 +74,8 @@ class KnishIOClient(object):
         mlkem_param_set: int = 1024,
         secret_storage=None,
         secretStorage=None,
-        ots_version: int = 2
+        ots_version: int = 2,
+        insecure_tls: bool = False
     ):
         self.__client = None
         self.__cell_slug = None
@@ -91,7 +92,7 @@ class KnishIOClient(object):
         self.__secret_storage = None
 
         storage = secretStorage if secretStorage is not None else secret_storage
-        self.initialize(url, client, server_sdk_version, logging, mlkem_param_set, storage, ots_version)
+        self.initialize(url, client, server_sdk_version, logging, mlkem_param_set, storage, ots_version, insecure_tls)
 
     def initialize(
         self,
@@ -101,11 +102,12 @@ class KnishIOClient(object):
         logging: bool = False,
         mlkem_param_set: int = 1024,
         secret_storage=None,
-        ots_version: int = 2
+        ots_version: int = 2,
+        insecure_tls: bool = False
     ):
         self.reset()
         self.__logging = logging
-        self.__client = client or (HttpClient(url) if url else None)
+        self.__client = client or (HttpClient(url, insecure_tls=insecure_tls) if url else None)
         self.__server_sdk_version = server_sdk_version
         self.__secret_storage = secret_storage
         # Route through the validating setter: assigning int(mlkem_param_set) raw silently

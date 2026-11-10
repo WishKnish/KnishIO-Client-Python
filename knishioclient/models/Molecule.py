@@ -131,11 +131,6 @@ class Molecule(MoleculeStructure):
 
         return self
 
-    def encrypt_message(self, data, shared_wallets: list):
-        args = [data, self.sourceWallet.pubkey]
-        args.extend(shared_wallets)
-        getattr(self.sourceWallet, 'encrypt_my_message')(*args)
-
     def final_metas(self, metas: List[Dict[str, str | int | float]] | Dict[str, str | int | float],
                     wallet: Wallet = None) -> List[Dict[str, str | int | float]] | Dict[str, str | int | float]:
         purse = wallet if wallet is not None else self.sourceWallet
