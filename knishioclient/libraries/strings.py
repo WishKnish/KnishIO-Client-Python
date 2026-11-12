@@ -7,6 +7,7 @@ import logging
 import math
 import secrets
 
+from decimal import Decimal
 from typing import List, Any
 import numpy as np
 from libnacl.encode import hex_decode, hex_encode, base64_encode, base64_decode
@@ -147,6 +148,63 @@ def number(value: float | int | str) -> float:
         return float(var)
     except (ValueError, TypeError):
         return 0.0
+
+
+def js_number_string(value: float | int) -> str:
+    """
+    A number as JS ``String(number)`` writes it: integers without ``.0``, plain notation for
+    decimal exponents from -6 to 20, exponent notation (``1e-7``, ``1e+21``) outside that range.
+    Python's ``str`` differs for ``10.0``, ``1e-05`` and ``1e+16``.
+
+    :param value: float | int
+    :return: str
+    """
+    if isinstance(value, int):
+        return str(value)
+    if value != value:
+        return 'NaN'
+    if value in (float('inf'), float('-inf')):
+        return 'Infinity' if value > 0 else '-Infinity'
+    if value == 0:
+        return '0'
+    sign = '-' if value < 0 else ''
+    # repr() is the shortest round-trip form, as JS uses; take its digits and decimal exponent
+    _, digit_tuple, exponent = Decimal(repr(abs(value))).as_tuple()
+    all_digits = ''.join(map(str, digit_tuple))
+    digits = all_digits.rstrip('0') or '0'
+    point = int(exponent) + len(all_digits)  # position of the decimal point (value is finite)
+    count = len(digits)
+    if count <= point <= 21:
+        text = digits + '0' * (point - count)
+    elif 0 < point <= 21:
+        text = digits[:point] + '.' + digits[point:]
+    elif -6 < point <= 0:
+        text = '0.' + '0' * (-point) + digits
+    else:
+        mantissa = digits[0] + ('.' + digits[1:] if count > 1 else '')
+        power = point - 1
+        text = mantissa + 'e' + ('+' if power > 0 else '-') + str(abs(power))
+    return sign + text
+
+
+def js_string(value: Any) -> str | None:
+    """
+    A scalar as JS ``String(value)`` writes it, with ``None`` kept as ``None`` (JS meta values
+    ``null``/``undefined`` stay ``null``): ``True``/``False`` become ``true``/``false`` and numbers
+    follow :func:`js_number_string`. Strings are returned unchanged; bytes are decoded.
+
+    :param value: Any
+    :return: str | None
+    """
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return decode(value)
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    if isinstance(value, (int, float)):
+        return js_number_string(value)
+    return str(value)
 
 
 _JS_ARRAY_INDEX = re.compile(r'^(0|[1-9][0-9]*)$')

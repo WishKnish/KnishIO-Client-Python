@@ -348,7 +348,8 @@ class ClientOtsVersionTest(unittest.TestCase):
         client = self._client_at(2)
         balances = [mock.Mock(payload=lambda: token_wallet), mock.Mock(payload=lambda: None)]
         molecules, proposals = self._proposals()
-        with mock.patch.object(client, 'query_balance', side_effect=balances), proposals:
+        head = mock.patch.object(client, 'query_continu_id', return_value=mock.Mock(payload=lambda: None))
+        with mock.patch.object(client, 'query_balance', side_effect=balances), proposals, head:
             client.transfer_token(Wallet.create(secret='e' * 2048).bundle, 'TKN', 10)
         molecule = molecules[0]
         self.assertEqual(molecule.atoms[0].walletAddress, token_wallet.address)

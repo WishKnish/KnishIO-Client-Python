@@ -165,7 +165,7 @@ class EncryptedProposeMoleculeTest(unittest.TestCase):
         )
 
     def test_an_authorization_molecule_is_sent_in_plaintext(self):
-        molecule = self._molecule().init_authorization(True)
+        molecule = self._molecule().init_authorization({"encrypt": "true"})
         request = {"query": PROPOSE_QUERY, "variables": {"molecule": molecule}}
 
         self.client.send(request)
@@ -243,7 +243,7 @@ class AuthMoleculeEncryptMetaTest(unittest.TestCase):
         molecule = Molecule(
             secret=SECRET, bundle=bundle, source_wallet=source, remainder_wallet=remainder
         )
-        return molecule.init_authorization(encrypt)
+        return molecule.init_authorization({"encrypt": "true" if encrypt else "false", "walletPubkey": source.pubkey})
 
     def _u_atom(self, encrypt):
         return next(atom for atom in self._auth_molecule(encrypt).atoms if atom.isotope == "U")

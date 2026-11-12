@@ -32,11 +32,22 @@ class Meta(Base):
     @classmethod
     def normalize_meta(cls, metas) -> List[Dict]:
         """
+        The meta as a ``[{key, value}]`` list, as JS ``Meta.normalizeMeta`` builds it: a dict's
+        entries in JS property order (integer-like keys first, ascending) and every value as JS
+        ``String(value)`` writes it (``True`` -> ``"true"``, ``10.0`` -> ``"10"``), ``None`` kept.
+
         :param metas: List or Dict
         :return: List[Dict]
         """
         if isinstance(metas, dict):
-            return [{"key": key, "value": value} for key, value in metas.items()]
+            ordered = strings._js_order({key: None for key in metas})
+            return [{"key": key, "value": strings.js_string(metas[key])} for key in ordered]
+        if isinstance(metas, list):
+            return [
+                {"key": item["key"], "value": strings.js_string(item.get("value"))}
+                if isinstance(item, dict) and "key" in item else item
+                for item in metas
+            ]
         return metas
 
     @classmethod

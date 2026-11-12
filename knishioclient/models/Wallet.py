@@ -51,9 +51,11 @@ class Wallet(object):
         self.position: str | None = position
         self.bundle: str | None = bundle
         self.batchId: str | None = batch_id
-        self.characters: str | None = characters or 'BASE64'
+        self.characters: str | None = characters
 
         if secret is not None:
+            # JS Wallet: only a keyed wallet defaults its characters to BASE64
+            self.characters = self.characters or 'BASE64'
             self.bundle = self.bundle or crypto.generate_bundle_hash(secret)
             self.position = self.position or Wallet.generate_position()
             self.key = Wallet.generate_key(secret, self.token, self.position, self.ots_version)

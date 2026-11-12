@@ -15,6 +15,10 @@ from .Meta import Meta
 from .Wallet import Wallet
 from .TokenUnit import TokenUnit
 
+# Hash versions a molecule can be built at (JS src/versions/index.js); any other version is ignored,
+# as in JS, and the molecule hashes with the legacy scheme.
+SUPPORTED_VERSIONS = ('4',)
+
 
 class Molecule(MoleculeStructure):
     """class Molecule"""
@@ -30,7 +34,8 @@ class Molecule(MoleculeStructure):
             cell_slug: str = None,
             continu_id_position: str = None,
             mlkem_param_set: int = None,
-            min_ots_version: int = 1
+            min_ots_version: int = 1,
+            version: str | int = None
     ) -> None:
         """
         :param secret:
@@ -39,6 +44,8 @@ class Molecule(MoleculeStructure):
         :param cell_slug:
         :param min_ots_version: lowest OTS version (1 or 2) for the wallets this molecule creates
             for its signer; see successor_ots_version()
+        :param version: hash version (JS Molecule ``version``): "4" puts every atom on Version 4;
+            any value the SDK does not know is ignored
         """
         super(Molecule, self).__init__(cell_slug)
         self.clear()
@@ -48,6 +55,9 @@ class Molecule(MoleculeStructure):
         self.sourceWallet: Wallet | None = source_wallet
         self.continuIdPosition: str | None = continu_id_position
         self.minOtsVersion: int = Wallet.checked_ots_version(min_ots_version)
+        self.parentHashes: List[str] = []
+        self.version: str | None = str(version) if version is not None and str(version) in SUPPORTED_VERSIONS \
+            else None
 
         self.mlkem_param_set = mlkem_param_set or (source_wallet.mlkem_param_set if source_wallet and hasattr(source_wallet, 'mlkem_param_set') else 1024)
         if remainder_wallet or source_wallet:
@@ -60,6 +70,16 @@ class Molecule(MoleculeStructure):
                 mlkem_param_set=self.mlkem_param_set,
                 ots_version=self.successor_ots_version()
             )
+
+    def with_parent_hashes(self, hashes: List[str]) -> 'Molecule':
+        """
+        Sets the parent molecular hashes (DAG linkage), as JS ``withParentHashes``.
+
+        :param hashes: List[str]
+        :return: self
+        """
+        self.parentHashes = list(hashes) if isinstance(hashes, (list, tuple)) else []
+        return self
 
     @property
     def USE_META_CONTEXT(self) -> bool:
@@ -126,16 +146,11 @@ class Molecule(MoleculeStructure):
         """
         self.molecularHash = None
         atom.index = self.generate_index()
+        atom.version = self.version
         self.atoms.append(atom)
         self.atoms = Atom.sort_atoms(self.atoms)
 
         return self
-
-    def final_metas(self, metas: List[Dict[str, str | int | float]] | Dict[str, str | int | float],
-                    wallet: Wallet = None) -> List[Dict[str, str | int | float]] | Dict[str, str | int | float]:
-        purse = wallet if wallet is not None else self.sourceWallet
-        metas.update({'pubkey': purse.pubkey, 'characters': purse.characters})
-        return metas
 
     def context_metas(self, metas: List[Dict[str, str | int | float]] | Dict[str, str | int | float],
                       context: str = None) -> List[Dict[str, str | int | float]] | Dict[str, str | int | float]:
@@ -210,6 +225,10 @@ class Molecule(MoleculeStructure):
                 # Serialized atoms array with optional OTS fragments
                 'atoms': [atom.to_json(include_ots_fragments) for atom in self.atoms]
             }
+
+            # Parent molecular hashes, only when there are any (JS toJSON)
+            if self.parentHashes:
+                serialized['parentHashes'] = list(self.parentHashes)
 
             # Validation context (essential for cross-SDK validation)
             if include_validation_context:
@@ -294,7 +313,7 @@ class Molecule(MoleculeStructure):
             molecule.createdAt = data.get('createdAt', strings.current_time_millis())
             if 'cellSlugOrigin' in data:
                 setattr(molecule, 'cellSlugOrigin', data['cellSlugOrigin'])
-
+            molecule.parentHashes = list(data['parentHashes']) if isinstance(data.get('parentHashes'), list) else []
             # Reconstruct atoms array with proper Atom instances
             if 'atoms' in data and isinstance(data['atoms'], list):
                 molecule.atoms = []
@@ -441,7 +460,7 @@ class Molecule(MoleculeStructure):
         if units_data:
             metas['tokenUnits'] = strings.js_json_stringify(units_data)
 
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
@@ -519,7 +538,7 @@ class Molecule(MoleculeStructure):
 
         self.molecularHash = None
 
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
@@ -534,7 +553,7 @@ class Molecule(MoleculeStructure):
                 self.generate_index()
             )
         )
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 burn_wallet.position,
                 burn_wallet.address,
@@ -549,7 +568,7 @@ class Molecule(MoleculeStructure):
                 self.generate_index()
             )
         )
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 recipient_wallet.position,
                 recipient_wallet.address,
@@ -564,7 +583,7 @@ class Molecule(MoleculeStructure):
                 self.generate_index()
             )
         )
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.remainderWallet.position,
                 self.remainderWallet.address,
@@ -573,7 +592,7 @@ class Molecule(MoleculeStructure):
                 balance - fused_count,
                 self.remainderWallet.batchId,
                 'walletBundle',
-                self.sourceWallet.bundle,
+                self.remainderWallet.bundle,
                 AtomMeta({}).set_atom_wallet(self.remainderWallet).get(),
                 None,
                 self.generate_index()
@@ -608,7 +627,7 @@ class Molecule(MoleculeStructure):
         # V-atom 1: debit the ENTIRE source balance (UTXO model). Must be -balance (not -value):
         # the burn target gets +value and the remainder +(balance-value), so the three V-atoms
         # sum to zero (validator requires exactly 3 V-atoms + sum == 0).
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
@@ -625,7 +644,7 @@ class Molecule(MoleculeStructure):
         )
 
         # V-atom 2: credit the burn amount to the all-zeros burn address (destruction)
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 burn_wallet.position,
                 burn_wallet.address,
@@ -642,7 +661,7 @@ class Molecule(MoleculeStructure):
         )
 
         # V-atom 3: remainder back to the source identity
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.remainderWallet.position,
                 self.remainderWallet.address,
@@ -651,7 +670,7 @@ class Molecule(MoleculeStructure):
                 float(self.sourceWallet.balance) - value,
                 self.remainderWallet.batchId,
                 'walletBundle',
-                self.sourceWallet.bundle,
+                self.remainderWallet.bundle,
                 AtomMeta({}).set_atom_wallet(self.remainderWallet).get(),  # stackable: tokenUnits (KEPT); fungible -> {}
                 None,
                 self.generate_index()
@@ -677,7 +696,7 @@ class Molecule(MoleculeStructure):
 
         self.molecularHash = None
 
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
@@ -693,7 +712,7 @@ class Molecule(MoleculeStructure):
             )
         )
 
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 recipient.position,
                 recipient.address,
@@ -709,7 +728,7 @@ class Molecule(MoleculeStructure):
             )
         )
 
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.remainderWallet.position,
                 self.remainderWallet.address,
@@ -718,7 +737,7 @@ class Molecule(MoleculeStructure):
                 float(self.sourceWallet.balance) - value,  # Correct remainder calculation
                 self.remainderWallet.batchId,
                 'walletBundle',
-                self.sourceWallet.bundle,
+                self.remainderWallet.bundle,
                 AtomMeta({}).set_atom_wallet(self.remainderWallet).get(),  # stackable: tokenUnits (KEPT); fungible -> {}
                 None,
                 self.generate_index()
@@ -749,7 +768,7 @@ class Molecule(MoleculeStructure):
         self.molecularHash = None
 
         # Source atom: debit the ENTIRE balance (UTXO drain); carries the SENT union of token units
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
@@ -767,7 +786,7 @@ class Molecule(MoleculeStructure):
 
         # One atom per recipient: +amount_i, walletBundle -> recipient bundle, its own SENT units
         for recipient, amount in zip(recipient_wallets, amounts):
-            self.atoms.append(
+            self.add_atom(
                 Atom(
                     recipient.position,
                     recipient.address,
@@ -784,7 +803,7 @@ class Molecule(MoleculeStructure):
             )
 
         # Remainder atom: +(balance - total), walletBundle -> sender bundle, KEPT units
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.remainderWallet.position,
                 self.remainderWallet.address,
@@ -793,7 +812,7 @@ class Molecule(MoleculeStructure):
                 float(self.sourceWallet.balance) - total,
                 self.remainderWallet.batchId,
                 'walletBundle',
-                self.sourceWallet.bundle,
+                self.remainderWallet.bundle,
                 AtomMeta({}).set_atom_wallet(self.remainderWallet).get(),  # stackable: tokenUnits (KEPT)
                 None,
                 self.generate_index()
@@ -806,7 +825,7 @@ class Molecule(MoleculeStructure):
 
     def init_wallet_creation(self, new_wallet: Wallet):
         # Cross-SDK parity (cycle 28): mirror JS initWalletCreation — the C-atom meta is the 7
-        # PREFIXED wallet* keys via setMetaWallet (NOT the unprefixed dict + final_metas), and the
+        # PREFIXED wallet* keys via setMetaWallet (no unprefixed pubkey/characters), and the
         # C-atom batchId is the NEW wallet's (was sourceWallet's). The ContinuID I-atom follows.
         self.add_atom(
             Atom(
@@ -829,76 +848,48 @@ class Molecule(MoleculeStructure):
 
         return self
 
-    def init_peer_creation(self, slug: str, host: str, name: str = None, cell_slugs: list = None):
+    def init_peering(self, host: str) -> 'Molecule':
         """
-        :param slug: str
-        :param host: str
-        :param name: str
-        :param cell_slugs: list
+        Initialize a P-type molecule registering a peer (JS ``initPeering``): a P atom from the
+        source wallet bound to this molecule's bundle with meta ``peerHost``, then ContinuID.
+
+        :param host: str - the peer host URL
         :return: self
         """
-        metas = {
-            'host': host,
-            'name': name,
-            'cellSlugs': cell_slugs or []
-        }
-
-        self.add_atom(
-            Atom(
-                self.sourceWallet.position,
-                self.sourceWallet.address,
-                'P',
-                self.sourceWallet.token,
-                None,
-                self.sourceWallet.batchId,
-                'peer',
-                slug,
-                self.final_metas(metas),
-                None,
-                self.generate_index()
-            )
-        )
+        self.add_atom(Atom.create(
+            isotope='P',
+            wallet=self.sourceWallet,
+            meta_type='walletBundle',
+            meta_id=self.bundle,
+            meta=AtomMeta({'peerHost': host})
+        ))
 
         self.add_continue_id_atom()
-        self.atoms = Atom.sort_atoms(self.atoms)
 
         return self
 
     def init_identifier_creation(self, type0: str, contact: str, code: str) -> 'Molecule':
         """
-        Initialize a C-type molecule to issue a new type of identifier
+        Initialize a C-type molecule to issue a new type of identifier (JS
+        ``initIdentifierCreation``): meta ``code`` and ``hash`` = bundle hash of the trimmed contact.
 
         :param type0: str
         :param contact: str
         :param code: str
         :return: self
         """
-
-        self.molecularHash = None
-
-        self.atoms.append(
-            Atom(
-                self.sourceWallet.position,
-                self.sourceWallet.address,
-                'C',
-                self.sourceWallet.token,
-                None,
-                None,
-                'identifier',
-                type0,
-                {
-                    "pubkey": self.sourceWallet.pubkey,
-                    "characters": self.sourceWallet.characters,
-                    "code": code,
-                    "hash": crypto.generate_bundle_hash(contact.strip())
-                },
-                None,
-                self.generate_index()
-            )
-        )
+        self.add_atom(Atom.create(
+            isotope='C',
+            wallet=self.sourceWallet,
+            meta_type='identifier',
+            meta_id=type0,
+            meta=AtomMeta({
+                'code': code,
+                'hash': crypto.generate_bundle_hash(contact.strip())
+            })
+        ))
 
         self.add_continue_id_atom()
-        self.atoms = Atom.sort_atoms(self.atoms)
 
         return self
 
@@ -920,9 +911,9 @@ class Molecule(MoleculeStructure):
         # `new AtomMeta(meta).setMetaWallet(recipientWallet)` — the C-atom carries the
         # user token meta followed by the 7 PREFIXED wallet* keys (walletTokenSlug,
         # walletBundleHash, walletAddress, walletPosition, walletBatchId, walletPubkey,
-        # walletCharacters) in insertion order. Do NOT route through final_metas (which
-        # injects unprefixed pubkey/characters) or append unprefixed walletAddress/Position.
-        self.atoms.append(
+        # walletCharacters) in insertion order, with no unprefixed pubkey/characters and no
+        # unprefixed walletAddress/Position.
+        self.add_atom(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
@@ -949,7 +940,7 @@ class Molecule(MoleculeStructure):
         # walletTokenSlug). The C-atom batchId is the claimed wallet's.
         self.molecularHash = None
 
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
@@ -1049,62 +1040,61 @@ class Molecule(MoleculeStructure):
 
         return self.init_meta(meta, 'walletBundle', self.sourceWallet.bundle)
 
-    def init_meta_append(self, meta, meta_type, meta_id):
-        self.molecularHash = None
+    def init_append_request(self, meta_type: str, meta_id: str, action: str, meta: Dict = None) -> 'Molecule':
+        """
+        Initialize an A-type molecule for an append request (JS ``initAppendRequest``): an A atom
+        from the source wallet with meta ``action`` followed by ``meta``, then ContinuID.
 
-        self.atoms.append(
-            Atom(
-                self.sourceWallet.position,
-                self.sourceWallet.address,
-                "A",
-                self.sourceWallet.token,
-                None,
-                None,
-                meta_type,
-                meta_id,
-                {**{
-                    "pubkey": self.sourceWallet.pubkey,
-                    "characters": self.sourceWallet.characters,
-                }, **meta},
-                None,
-                self.generate_index()
-            )
-        )
+        :param meta_type: str - the target MetaType
+        :param meta_id: str - the target MetaId
+        :param action: str - the action to perform
+        :param meta: dict - additional metadata
+        :return: self
+        """
+        self.add_atom(Atom.create(
+            isotope='A',
+            wallet=self.sourceWallet,
+            meta_type=meta_type,
+            meta_id=meta_id,
+            meta=AtomMeta({'action': action, **(meta or {})})
+        ))
+
         self.add_continue_id_atom()
-
-        self.atoms = Atom.sort_atoms(self.atoms)
 
         return self
 
-    def init_token_request(self, token, requested_amount, meta_type, meta_id, meta: list | dict = None):
-        self.molecularHash = None
-        meta = meta or []
+    def init_token_request(self, token, requested_amount, meta_type, meta_id, meta: list | dict = None,
+                           batch_id: str = None) -> 'Molecule':
+        """
+        Arrange a T atom requesting tokens from the node (JS ``initTokenRequest``): the meta gains
+        ``token`` and ``amount`` (the amount as JS ``String()`` writes it), then ContinuID.
 
-        self.atoms.append(
-            Atom(
-                self.sourceWallet.position,
-                self.sourceWallet.address,
-                "T",
-                self.sourceWallet.token,
-                requested_amount,
-                None,
-                meta_type,
-                meta_id,
-                Molecule.merge_metas(
-                    {
-                        "pubkey": self.sourceWallet.pubkey,
-                        "characters": self.sourceWallet.characters,
-                        "token": token,
-                    },
-                    meta
-                ),
-                None,
-                self.generate_index()
-            )
-        )
+        :param token: str - the token slug
+        :param requested_amount: int | float
+        :param meta_type: str
+        :param meta_id: str
+        :param meta: dict | list - additional metadata
+        :param batch_id: str | None
+        :return: self
+        """
+        # JS assigns meta.token / meta.amount on the meta object (an existing key keeps its place)
+        additions = {'token': token, 'amount': strings.js_string(requested_amount)}
+        if isinstance(meta, list):
+            atom_meta = AtomMeta(meta).merge(additions)
+        else:
+            atom_meta = AtomMeta({**(meta or {}), **additions})
+
+        self.add_atom(Atom.create(
+            isotope='T',
+            wallet=self.sourceWallet,
+            value=requested_amount,
+            meta_type=meta_type,
+            meta_id=meta_id,
+            meta=atom_meta,
+            batch_id=batch_id
+        ))
 
         self.add_continue_id_atom()
-        self.atoms = Atom.sort_atoms(self.atoms)
 
         return self
 
@@ -1138,86 +1128,53 @@ class Molecule(MoleculeStructure):
 
         return self
     
-    def init_deposit_buffer(self, amount: float, trade_rates: dict = None) -> 'Molecule':
+    def init_deposit_buffer(self, amount: float, trade_rates=None) -> 'Molecule':
         """
-        Initialize molecule for depositing tokens to buffer
-        
+        Initialize molecule for depositing tokens to buffer (JS ``initDepositBuffer``): source V
+        (-balance), buffer B (+amount) bound to the source bundle, remainder V (+change). Every
+        atom is built with ``Atom.create``, so its meta is what JS ``AtomMeta.setAtomWallet`` gives.
+
         :param amount: Amount to deposit to buffer
         :param trade_rates: Trade rates for the buffer wallet (optional)
         :return: self
         """
-        from ..exception import BalanceInsufficientException
-        
         if self.sourceWallet.balance - amount < 0:
             raise BalanceInsufficientException()
-        
-        # Create a buffer wallet (use kwargs: Python's Wallet.create signature is
-        # (secret, bundle, token, batch_id, ...) — passing token positionally would
-        # land it in `bundle` and leave position None, breaking key generation)
+
         buffer_wallet = Wallet.create(
             secret=self.secret(),
+            bundle=self.bundle,
             token=self.sourceWallet.token,
             batch_id=self.sourceWallet.batchId,
             mlkem_param_set=self.mlkem_param_set,
             ots_version=self.successor_ots_version()
         )
-        if trade_rates:
+        if trade_rates is not None:
             buffer_wallet.tradeRates = trade_rates
-        
-        # Remove tokens from source (debit the FULL balance, not just the deposit
-        # amount; the change is routed to the remainder atom below so V+B sum to 0).
-        # Atom args: position, wallet_address, isotope, token, value, batch_id,
-        # meta_type, meta_id, meta, ots_fragment, index — mirroring init_value.
-        self.atoms.append(
-            Atom(
-                self.sourceWallet.position,
-                self.sourceWallet.address,
-                'V',
-                self.sourceWallet.token,
-                -float(self.sourceWallet.balance),
-                self.sourceWallet.batchId,
-                None,
-                None,
-                self.final_metas({}),
-                None,
-                self.generate_index()
-            )
-        )
 
-        # Add tokens to buffer
-        self.atoms.append(
-            Atom(
-                buffer_wallet.position,
-                buffer_wallet.address,
-                'B',
-                self.sourceWallet.token,
-                amount,
-                buffer_wallet.batchId,
-                'walletBundle',
-                self.sourceWallet.bundle,
-                self.final_metas({}, buffer_wallet),
-                None,
-                self.generate_index()
-            )
-        )
+        # Debit the FULL balance; the change goes to the remainder atom so V+B sum to 0
+        self.add_atom(Atom.create(
+            isotope='V',
+            wallet=self.sourceWallet,
+            value=-self.sourceWallet.balance
+        ))
 
-        # Add remainder (the change from the full-balance debit)
-        self.atoms.append(
-            Atom(
-                self.remainderWallet.position,
-                self.remainderWallet.address,
-                'V',
-                self.sourceWallet.token,
-                float(self.sourceWallet.balance) - amount,
-                self.remainderWallet.batchId,
-                'walletBundle',
-                self.sourceWallet.bundle,
-                self.final_metas({}, self.remainderWallet),
-                None,
-                self.generate_index()
-            )
-        )
-        
+        self.add_atom(Atom.create(
+            isotope='B',
+            wallet=buffer_wallet,
+            value=amount,
+            meta_type='walletBundle',
+            meta_id=self.sourceWallet.bundle
+        ))
+
+        self.add_atom(Atom.create(
+            isotope='V',
+            wallet=self.remainderWallet,
+            value=self.sourceWallet.balance - amount,
+            meta_type='walletBundle',
+            meta_id=self.sourceWallet.bundle
+        ))
+
         return self
     
     def init_withdraw_buffer(self, recipients: dict) -> 'Molecule':
@@ -1238,7 +1195,7 @@ class Molecule(MoleculeStructure):
 
         self.molecularHash = None
 
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.sourceWallet.position,
                 self.sourceWallet.address,
@@ -1255,7 +1212,7 @@ class Molecule(MoleculeStructure):
         )
 
         for recipient_bundle, recipient_amount in (recipients or {}).items():
-            self.atoms.append(
+            self.add_atom(
                 Atom(
                     None,
                     None,
@@ -1271,7 +1228,7 @@ class Molecule(MoleculeStructure):
                 )
             )
 
-        self.atoms.append(
+        self.add_atom(
             Atom(
                 self.remainderWallet.position,
                 self.remainderWallet.address,
@@ -1289,43 +1246,22 @@ class Molecule(MoleculeStructure):
 
         return self
     
-    def init_authorization(self, encrypt: bool = False):
-        self.molecularHash = None
+    def init_authorization(self, meta: Dict = None) -> 'Molecule':
+        """
+        Arrange a U atom requesting an authorization token (JS ``initAuthorization``), then
+        ContinuID. The client passes ``{'encrypt': 'true'|'false', 'walletPubkey': <pubkey>}``:
+        the requested transport mode and the source wallet's ML-KEM public key travel signed.
 
-        self.atoms.append(
-            Atom(
-                self.sourceWallet.position,
-                self.sourceWallet.address,
-                "U",
-                self.sourceWallet.token,
-                None,
-                self.sourceWallet.batchId,
-                None,
-                None,
-                {
-                    # PQ-transport: the client's own request for an encrypted transport, signed
-                    # with the rest of this U-atom so the validator can honour it without trusting
-                    # an unsigned field (extract_encrypt_flag compares against the literal "true").
-                    # Key order mirrors the C/C++ SDKs, which emit `encrypt` first.
-                    "encrypt": "true" if encrypt else "false",
-                    "pubkey": self.sourceWallet.pubkey,
-                    "characters": self.sourceWallet.characters,
-                    # PQ-transport Phase E: convey the AUTH source wallet's ML-KEM public key as a
-                    # SIGNED walletPubkey meta (this U-atom is signed → MITM-proof), so the validator's
-                    # extract_enc_pubkey can encrypt CipherHash responses back to THIS wallet.
-                    "walletPubkey": self.sourceWallet.pubkey,
-                },
-                None,
-                self.generate_index()
-            )
-        )
+        :param meta: dict
+        :return: self
+        """
+        self.add_atom(Atom.create(
+            isotope='U',
+            wallet=self.sourceWallet,
+            meta=AtomMeta(meta if meta is not None else {})
+        ))
 
-        # ContinuID I-atom — registers the bundle's relay head on-ledger so subsequent molecules
-        # advance the chain instead of falling to fresh genesis (mirror JS initAuthorization +
-        # every other init_*).
         self.add_continue_id_atom()
-
-        self.atoms = Atom.sort_atoms(self.atoms)
 
         return self
 
@@ -1347,13 +1283,14 @@ class Molecule(MoleculeStructure):
         """
         return max(self.signing_ots_version(), getattr(self, 'minOtsVersion', 1))
 
-    def sign(self, anonymous: bool = False, compressed: bool = True) -> str | bytes | None:
+    def sign(self, anonymous: bool = False, compressed: bool = True, bundle: str = None) -> str | bytes | None:
         """
         Creates a one-time signature for a molecule and breaks it up across multiple atoms within that
         molecule. The signature is 2048 hex characters for OTS v1 and 8192 for OTS v2.
 
         :param anonymous: bool default False
         :param compressed: bool default True
+        :param bundle: str - the bundle to set when the molecule has none (JS ``sign({ bundle })``)
         :return: str | bytes | None
         :raise AtomsMissingException: The molecule does not contain atoms
         :raise SignatureMalformedException: The molecular hash is not 64 characters of [0-9a-g]
@@ -1361,8 +1298,9 @@ class Molecule(MoleculeStructure):
         if len(self.atoms) == 0 or len([atom for atom in self.atoms if not isinstance(atom, Atom)]) != 0:
             raise AtomsMissingException()
 
-        if not anonymous:
-            self.bundle = crypto.generate_bundle_hash(self.secret())
+        # JS Molecule.sign: an existing bundle is kept
+        if not anonymous and not self.bundle:
+            self.bundle = bundle or crypto.generate_bundle_hash(self.secret())
 
         self.molecularHash = Atom.hash_atoms(self.atoms)
         self.atoms = Atom.sort_atoms(self.atoms)

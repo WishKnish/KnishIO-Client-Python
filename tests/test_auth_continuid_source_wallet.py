@@ -141,10 +141,18 @@ class ProvenReloginTest(unittest.TestCase):
         return client, transport, response
 
     def _assert_queried_with_user_token(self, transport):
-        self.assertEqual(len(transport.continu_id_requests), 1)
-        request = transport.continu_id_requests[0]
-        self.assertEqual(request["variables"], {"bundle": self.bundle, "token": "USER"})
-        self.assertIn("token: $token", request["query"])
+        # One pointer lookup, filtered to token USER. A molecule signed from an AUTH wallet adds the
+        # unfiltered head lookup JS createMolecule makes for a non-USER source wallet (it supplies
+        # the ContinuID atom's previousPosition).
+        pointer_requests = [request for request in transport.continu_id_requests
+                            if "token" in (request["variables"] or {})]
+        self.assertEqual(len(pointer_requests), 1)
+        pointer_request = pointer_requests[0]
+        self.assertEqual(pointer_request["variables"], {"bundle": self.bundle, "token": "USER"})
+        self.assertIn("token: $token", pointer_request["query"])
+        for request in transport.continu_id_requests:
+            if request is not pointer_request:
+                self.assertEqual(request["variables"], {"bundle": self.bundle})
 
     def test_returning_user_login_is_signed_from_the_continuid_pointer(self):
         pointer = continu_id_wallet(self.bundle, address=self.pointer_wallet.address)
@@ -195,7 +203,7 @@ class ProvenReloginTest(unittest.TestCase):
 
         self.assertTrue(response.success())
         self.assertIn("forged signature", "\n".join(logs.output))
-        self.assertEqual(len(transport.continu_id_requests), 1)
+        self._assert_queried_with_user_token(transport)
         self.assertEqual([proposal.atoms[0].token for proposal in transport.proposals], ["USER", "AUTH"])
         self.assertEqual(client.client()._HttpClient__wallet.token, "AUTH")
 

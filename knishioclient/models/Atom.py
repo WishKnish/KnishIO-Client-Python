@@ -16,12 +16,13 @@ def _format_value(value: 'str | int | float') -> str:
     Whole-number floats must NOT carry a trailing ".0": the validator parses
     V/B/F values as i128 (integer-only), so "1000.0" would fail to parse and the
     molecule would be rejected. JS/TS/PHP/Rust all emit "1000"; Python str(1000.0)
-    would emit "1000.0" — this normalizes it to match (cross-SDK parity).
+    would emit "1000.0" — this normalizes it to match (cross-SDK parity), and writes
+    exponents as JS does ("1e-7", "1e+21").
     """
     if isinstance(value, bool):  # bool is an int subclass — keep its str() form
         return str(value)
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
+    if isinstance(value, (int, float)):
+        return strings.js_number_string(value)
     return str(value)
 
 
@@ -91,16 +92,18 @@ class Atom(Base):
         value: str | int | float = None,
         meta_type: str = None,
         meta_id: str = None,
-        meta: AtomMeta | dict = None,
+        meta: 'AtomMeta | dict | list' = None,
         batch_id: str = None
     ):
+        # JS Atom.create: anything that is not an AtomMeta (a dict or a [{key, value}] list)
+        # becomes one
         if meta is None:
             meta = AtomMeta()
-        if isinstance(meta, dict):
+        if not isinstance(meta, AtomMeta):
             meta = AtomMeta(meta)
         if wallet is not None:
             meta.set_atom_wallet(wallet)
-            if batch_id is None:
+            if not batch_id:
                 batch_id = wallet.batchId
 
         return cls(
@@ -365,13 +368,9 @@ class Atom(Base):
                         molecular_sponge.update(strings.encode(str(meta_item['key'])))
                         molecular_sponge.update(strings.encode(str(meta_item['value'])))
             
-            # CreatedAt as string (milliseconds since epoch, matching C SDK)
+            # CreatedAt as string, exactly as the atom carries it (JS String(value))
             if atom.createdAt:
-                # Ensure createdAt is in milliseconds format like C SDK
-                created_at_ms = atom.createdAt
-                if len(str(created_at_ms)) <= 10:  # Looks like seconds, convert to ms
-                    created_at_ms = str(int(created_at_ms) * 1000)
-                molecular_sponge.update(strings.encode(str(created_at_ms)))
+                molecular_sponge.update(strings.encode(str(atom.createdAt)))
 
     def aggregated_meta(self) -> Dict:
         """

@@ -49,6 +49,9 @@ class Coder(JSONEncoder):
                 'createdAt': value.createdAt,
                 'atoms': value.atoms,
             }
+            # Parent molecular hashes (DAG linkage), only when there are any (JS Molecule.toJSON)
+            if getattr(value, 'parentHashes', None):
+                result['parentHashes'] = list(value.parentHashes)
             # Include remainderWallet if it exists (matching JavaScript)
             if hasattr(value, 'remainderWallet'):
                 result['remainderWallet'] = value.remainderWallet.address if value.remainderWallet else None

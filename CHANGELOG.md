@@ -52,6 +52,34 @@ detail, the entry says so instead of guessing.
   `self` (`PolicyInvalidException`). A T atom checks `position`/`bundle` only when its `metaType`
   is `wallet` (an empty `metaType` matched before), and two V atoms are a self-transfer only when
   their addresses are equal, not when one contains the other.
+- Signed atoms match the JS reference byte for byte. **Signed bytes change** for the molecules
+  below. No other SDK produced the old bytes. Each case is pinned to the digest the JS SDK computes
+  from the same inputs (`tests/test_js_parity_digests.py`).
+  - `create_wallet`, `request_tokens` to a secret, `extracting_authorization_wallet` and
+    `WalletShadow` pass `Wallet` keyword arguments: the token used to land in `bundle` (and the
+    position in `token`). `request_tokens` to a bundle hash sends `metaType` `walletBundle`, not
+    `walletbundle`. A wallet without a secret no longer defaults `characters` to `BASE64`.
+  - `Molecule` builders build their atoms as `Molecule.js` does: `init_identifier_creation`,
+    `init_token_request` (which raised `AttributeError` on every call; it now writes `token` and
+    `amount` meta and takes `batch_id`), `init_authorization(meta)` (the client sends
+    `{encrypt, walletPubkey}`; the extra `pubkey`/`characters` metas, which JS does not send, are
+    gone), `init_deposit_buffer` (meta from the wallets, no `pubkey`/`characters`), and the new
+    `init_peering(host)` and `init_append_request(meta_type, meta_id, action, meta)`, which replace
+    `init_peer_creation` and `init_meta_append` (the old peer atom carried `host` instead of
+    `peerHost` and failed `check.isotope_p`).
+    Remainder V atoms take `metaId` from the remainder wallet's bundle. `AtomMeta` holds the
+    `[{key, value}]` list JS holds, and emits `tradeRates` only for a non-empty list, serialized
+    as JS `JSON.stringify` does. `Molecule.sign()` keeps a bundle the molecule already has.
+  - `KnishIOClient.create_molecule` sets `continuIdPosition` for a non-`USER` source wallet (the
+    ContinuID `previousPosition` used to be the token wallet's position) and passes
+    `server_sdk_version` as the molecule `version`.
+  - The legacy hash absorbs `createdAt` as the atom carries it: a `createdAt` of 10 characters or
+    fewer was multiplied by 1000. Meta values are written as JS `String()` writes them
+    (`true`/`false`, `10` not `10.0`, `0.00001`, `1e+21`) and a dict meta's integer-like keys come
+    first, as JS orders object keys. `Atom.create` accepts a `[{key, value}]` list.
+  - `Molecule(version=4)` (and a client with `server_sdk_version=4`) signs Version 4 atoms; it used
+    to sign legacy hashes. `Molecule.with_parent_hashes()` sets `parentHashes`, which `to_json`,
+    `from_json` and the GraphQL serialization carry when non-empty.
 
 ### Security
 

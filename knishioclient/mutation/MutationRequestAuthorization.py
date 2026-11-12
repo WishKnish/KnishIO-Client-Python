@@ -4,8 +4,11 @@ from .MutationProposeMolecule import MutationProposeMolecule
 
 
 class MutationRequestAuthorization(MutationProposeMolecule):
-    def fill_molecule(self, encrypt: bool = False):
-        self.molecule().init_authorization(encrypt)
+    def fill_molecule(self, meta: dict = None):
+        """
+        :param meta: dict - the U-atom meta, e.g. ``{'encrypt': 'false', 'walletPubkey': <pubkey>}``
+        """
+        self.molecule().init_authorization(meta)
         self.molecule().sign()
         self.molecule().check()
 

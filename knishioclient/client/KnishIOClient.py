@@ -262,12 +262,26 @@ class KnishIOClient(object):
                 secret = self.secret()
         bundle = bundle or self.bundle()
 
+        last_query_succeeded = self.__last_molecule_query is not None \
+            and self.__last_molecule_query.response() is not None \
+            and self.__last_molecule_query.response().success()
+
+        # JS createMolecule: a non-USER source wallet (V/B isotopes) does not carry the identity's
+        # ContinuID position, so capture the current USER head BEFORE the remainder is replaced;
+        # add_continue_id_atom() writes it as previousPosition.
+        continu_id_position = None
+        if source_wallet is not None and source_wallet.token != 'USER':
+            if last_query_succeeded and self.get_remainder_wallet() is not None \
+                    and self.get_remainder_wallet().token == 'USER':
+                continu_id_position = self.get_remainder_wallet().position
+            else:
+                continu_id = self.query_continu_id(self.bundle()).payload()
+                continu_id_position = continu_id.position if continu_id is not None else Wallet.generate_position()
+
         if source_wallet is None \
                 and self.get_remainder_wallet() is not None \
                 and self.get_remainder_wallet().token == 'USER' \
-                and self.__last_molecule_query is not None \
-                and self.__last_molecule_query.response() is not None \
-                and self.__last_molecule_query.response().success():
+                and last_query_succeeded:
             source_wallet = self.get_remainder_wallet()
 
         if source_wallet is None:
@@ -276,7 +290,11 @@ class KnishIOClient(object):
         # The default remainder is a USER wallet (as in JS createMolecule). It is never below the
         # client's OTS version, so a client set to v2 moves the identity's successor wallets to v2
         self.__remainder_wallet = remainder_wallet or Wallet.create(
-            secret, bundle, 'USER', source_wallet.batchId, source_wallet.characters,
+            secret=secret,
+            bundle=bundle,
+            token='USER',
+            batch_id=source_wallet.batchId,
+            characters=source_wallet.characters,
             mlkem_param_set=self.get_mlkem_parameter_set(),
             ots_version=max(getattr(source_wallet, 'ots_version', 1), self.get_ots_version())
         )
@@ -286,10 +304,13 @@ class KnishIOClient(object):
             source_wallet=source_wallet,
             remainder_wallet=self.get_remainder_wallet(),
             cell_slug=self.cell_slug(),
+            continu_id_position=continu_id_position,
             mlkem_param_set=self.get_mlkem_parameter_set(),
-            min_ots_version=self.get_ots_version()
+            min_ots_version=self.get_ots_version(),
+            version=self.get_server_sdk_version()
         )
         return molecule
+
     def create_molecule_mutation(self, mutation_class, molecule: Molecule = None) -> Mutation:
         molecule = molecule or self.create_molecule()
         mutation = mutation_class(self, molecule)
@@ -418,7 +439,7 @@ class KnishIOClient(object):
         return query.execute(variables, fields).payload()
 
     def create_wallet(self, token_slug: str):
-        new_wallet = Wallet(self.secret(), token_slug, mlkem_param_set=self.get_mlkem_parameter_set(),
+        new_wallet = Wallet(secret=self.secret(), token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set(),
                             ots_version=self.get_ots_version())
         query = self.create_molecule_mutation(MutationCreateWallet)
         query.fill_molecule(new_wallet)
@@ -505,10 +526,10 @@ class KnishIOClient(object):
         if to is not None:
             if isinstance(to, (str, bytes)):
                 if Wallet.is_bundle_hash(to):
-                    meta_type = 'walletbundle'
+                    meta_type = 'walletBundle'
                     meta_id = to
                 else:
-                    to = Wallet.create(to, token_slug, mlkem_param_set=self.get_mlkem_parameter_set(),
+                    to = Wallet.create(secret=to, token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set(),
                                        ots_version=self.get_ots_version())
             if isinstance(to, Wallet):
                 meta_type = 'wallet'
@@ -660,7 +681,8 @@ class KnishIOClient(object):
 
     def extracting_authorization_wallet(self, molecule: Molecule):
         atom = get_signed_atom(molecule)
-        return Wallet(self.secret(), atom.token, atom.position, mlkem_param_set=self.get_mlkem_parameter_set(),
+        return Wallet(secret=self.secret(), token=atom.token, position=atom.position,
+                      mlkem_param_set=self.get_mlkem_parameter_set(),
                       ots_version=molecule.signing_ots_version()) if atom is not None else None
     
     def query_batch(self, batch_id: str = None):
@@ -1016,13 +1038,14 @@ class KnishIOClient(object):
         # Create auth mutation
         query = self.create_molecule_mutation(MutationRequestAuthorization, molecule)
 
-        # PQ-transport Phase E: the source wallet's ML-KEM pubkey AND the requested transport
-        # mode travel as SIGNED U-atom metas (`walletPubkey`, `encrypt`) built inside
-        # init_authorization, so the validator can encrypt CipherHash responses back to this wallet
-        # and persist the session's `encrypted` flag. Until this was threaded through, Python never
-        # sent `encrypt` at all and every Python profile session was recorded as plaintext, so the
-        # validator's encrypted-transport enforcement could never apply to it.
-        query.fill_molecule(encrypt)
+        # PQ-transport Phase E: the requested transport mode and the source wallet's ML-KEM pubkey
+        # travel as SIGNED U-atom metas (`encrypt`, `walletPubkey`), as JS requestProfileAuthToken
+        # builds them, so the validator can encrypt CipherHash responses back to this wallet and
+        # persist the session's `encrypted` flag.
+        auth_meta = {'encrypt': 'true' if encrypt else 'false'}
+        if wallet.pubkey:
+            auth_meta['walletPubkey'] = wallet.pubkey
+        query.fill_molecule(auth_meta)
 
         return query.execute()
 

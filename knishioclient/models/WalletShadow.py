@@ -13,7 +13,7 @@ class WalletShadow(Wallet):
         :param batch_id: str
         :param characters: str
         """
-        super().__init__(None, token)
+        super().__init__(None, token=token)
 
         self.bundle = bundle_hash
         self.batchId = batch_id

@@ -92,7 +92,10 @@ class ContinuIdRemainderTokenTest(unittest.TestCase):
         client.set_secret(SECRET)
         source = Wallet(secret=SECRET, token='TKN', position=POSITION, batch_id='batch', characters='BASE64')
 
-        molecule = client.create_molecule(source_wallet=source)
+        # A non-USER source wallet makes create_molecule look up the identity's ContinuID head
+        # (JS createMolecule); the bundle has none here
+        with mock.patch.object(client, 'query_continu_id', return_value=mock.Mock(payload=lambda: None)):
+            molecule = client.create_molecule(source_wallet=source)
 
         remainder = client.get_remainder_wallet()
         self.assertEqual(remainder.token, 'USER')
