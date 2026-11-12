@@ -3,8 +3,8 @@
 kcore parity vectors: full signed molecules that libkcore and the pure-Python path must reproduce byte
 for byte.
 
-The fixture tests/fixtures/kcore-parity-vectors.json is vendored from the shared master
-../shared-test-results/kcore-parity-vectors.json (scripts/gen-kcore-parity-vectors.mjs). It holds 16
+The fixture tests/fixtures/kcore-parity-vectors.json is vendored from the monorepo's shared master
+kcore-parity-vectors.json (scripts/gen-kcore-parity-vectors.mjs). It holds 16
 cases: metadata, value transfer, token creation and wallet creation, each under OTS v1 and v2, with
 distinct and with colliding createdAt values. For every case the molecule must verify (molecular hash
 and OTS signature), and re-signing it from the case's secret and source wallet must reproduce the

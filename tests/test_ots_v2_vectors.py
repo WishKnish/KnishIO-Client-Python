@@ -3,9 +3,9 @@
 OTS v2 (docs/OTS_V2_SPECIFICATION.md): key derivation, address, the normalized hash, ML-KEM
 identities of v2 wallets, molecule verdicts and the malformed declared hash.
 
-The vector suite reads the shared master ../shared-test-results/ots-v2-vectors.json (relative to
-the SDK root). A standalone checkout of this SDK has no master, so that suite registers one
-visible skip. The v2 round trip below needs no vectors and always runs.
+The vector suite reads tests/fixtures/ots-v2-vectors.json, vendored from the shared master by
+scripts/sync-cross-sdk-fixtures.sh in the monorepo. A missing or unparsable file fails the module.
+The v2 round trip below needs no vectors.
 """
 
 import json
@@ -27,8 +27,8 @@ from knishioclient.models.Molecule import Molecule
 from knishioclient.models.Wallet import Wallet
 from knishioclient.mutation import MutationProposeMolecule
 
-VECTORS_PATH = SDK_ROOT.parent / 'shared-test-results' / 'ots-v2-vectors.json'
-VECTORS = json.loads(VECTORS_PATH.read_text(encoding='utf-8'))['vectors'] if VECTORS_PATH.exists() else None
+VECTORS_PATH = Path(__file__).resolve().parent / 'fixtures' / 'ots-v2-vectors.json'
+VECTORS = json.loads(VECTORS_PATH.read_text(encoding='utf-8'))['vectors']
 
 EXCEPTIONS = {
     'SignatureMismatch': SignatureMismatchException,
@@ -40,7 +40,6 @@ def _key_vector(name: str) -> dict:
     return next(k for k in VECTORS['key_derivation']['tests'] if k['name'] == name)
 
 
-@unittest.skipUnless(VECTORS is not None, 'ots-v2-vectors.json not found (standalone checkout)')
 class OtsV2VectorTest(unittest.TestCase):
 
     def test_key_derivation_and_address(self):
