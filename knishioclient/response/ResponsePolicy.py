@@ -8,16 +8,8 @@ class ResponsePolicy(Response):
     Response for Policy Query
     """
     
-    def __init__(self, query, json_data):
-        """
-        Class constructor
-        
-        :param query: Query object
-        :param json_data: JSON response data
-        """
-        super().__init__(query, json_data)
-        self.data_key = 'data.Policy'
-        self.init()
+    def data_key(self):
+        return 'Policy'
     
     def payload(self):
         """

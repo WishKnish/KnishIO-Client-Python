@@ -80,6 +80,19 @@ detail, the entry says so instead of guessing.
   - `Molecule(version=4)` (and a client with `server_sdk_version=4`) signs Version 4 atoms; it used
     to sign legacy hashes. `Molecule.with_parent_hashes()` sets `parentHashes`, which `to_json`,
     `from_json` and the GraphQL serialization carry when non-empty.
+- Client operations that crashed or returned nothing: `create_identifier` proposes a
+  `MutationCreateIdentifier` molecule (it built a `MutationLinkIdentifier`, which
+  `create_molecule_mutation` always refused); new `link_identifier(type, contact)` sends the
+  `LinkIdentifier` mutation, as JS `linkIdentifier` does; `create_token_enhanced` and
+  `query_balance_enhanced` call `create_token` / `query_balance` with their real arguments (both
+  always returned a failure); `url()` returns the endpoint (it returned `None`). `Response` reads
+  `errors` before `data`, so an errors-only reply is reported as errors instead of raising
+  `InvalidResponseException`. `ResponseAtom`, `ResponseAuthorizationGuest`, `ResponseMetaBatch`
+  and `ResponsePolicy` read their field (their constructors raised `TypeError` or
+  `AttributeError`). `ResponseRequestAuthorization.wallet()`, which called a method that does not
+  exist, is removed (JS has no counterpart). `MoleculeStructure.cellSlugDelimiter` is a class
+  attribute, so `Molecule.init_bundle_meta` works, and a missing attribute such as `c` or `id`
+  raises `AttributeError` (it returned `'.'`).
 
 ### Security
 

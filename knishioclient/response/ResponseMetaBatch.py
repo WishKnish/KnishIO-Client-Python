@@ -7,11 +7,5 @@ class ResponseMetaBatch(Response):
     Response for MetaBatch Query
     """
     
-    def __init__(self, query, json_data):
-        """
-        Class constructor
-        
-        :param query: Query object
-        :param json_data: JSON response data
-        """
-        super().__init__(query, json_data, data_key='data.MetaBatch')
+    def data_key(self):
+        return 'MetaBatch'

@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-from ..models import Wallet
 from .ResponseProposeMolecule import ResponseProposeMolecule
 
 
@@ -45,7 +44,3 @@ class ResponseRequestAuthorization(ResponseProposeMolecule):
             return payload.get('key', None)
 
         return None
-
-    def wallet(self):
-        token = self.auth_token()
-        return Wallet.json_to_object(token) if token is not None else None

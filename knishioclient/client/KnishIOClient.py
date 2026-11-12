@@ -34,6 +34,7 @@ from ..mutation import (
     MutationCreateToken,
     MutationRequestTokens,
     MutationLinkIdentifier,
+    MutationCreateIdentifier,
     MutationClaimShadowWallet,
     MutationTransferTokens,
     MutationCreateWallet,
@@ -179,7 +180,7 @@ class KnishIOClient(object):
         return self.__server_sdk_version
 
     def url(self):
-        self.__client.get_url()
+        return self.__client.get_url()
 
     def set_url(self, url):
         self.__client.set_url(url)
@@ -548,10 +549,19 @@ class KnishIOClient(object):
         return query.execute()
 
     def create_identifier(self, type0, contact, code):
-        query = self.create_molecule_mutation(MutationLinkIdentifier)
+        query = self.create_molecule_mutation(MutationCreateIdentifier)
         query.fill_molecule(type0, contact, code)
 
         return query.execute()
+
+    def link_identifier(self, type0: str, contact: str):
+        """Links an identifier (e.g. an email) to this client's bundle (JS ``linkIdentifier``)."""
+        query = self.create_query(MutationLinkIdentifier)
+        return query.execute({
+            'bundle': self.bundle(),
+            'type': type0,
+            'content': contact
+        })
 
     def query_shadow_wallets(self, token_slug: str = 'KNISH', bundle_hash: str | bytes | None = None):
         query = self.create_query(QueryWalletList)
@@ -1176,18 +1186,12 @@ class KnishIOClient(object):
                     time.time() - start_time
                 )
             
-            # Create recipient wallet for the token
-            recipient_wallet = self.get_source_wallet()
-            
-            # Create token creation mutation
-            mutation = self.create_token(
-                recipient_wallet=recipient_wallet,
+            # create_token builds the token wallet itself and executes the mutation
+            legacy_response = self.create_token(
                 token_slug=config.token,
-                amount=config.amount or 0,
-                token_meta=config.meta or {}
+                initial_amount=config.amount or 0,
+                token_metadata=config.meta or {}
             )
-            
-            legacy_response = mutation.execute()
             
             if legacy_response.success():
                 return StandardResponse.create_success(
@@ -1221,14 +1225,13 @@ class KnishIOClient(object):
         start_time = time.time()
         
         try:
-            query = self.query_balance(
-                bundle_hash=bundle or self.bundle(),
-                token=token
+            legacy_response = self.query_balance(
+                token_slug=token,
+                bundle_hash=bundle or self.bundle()
             )
-            
-            legacy_response = query.execute()
-            
-            if legacy_response.success():
+
+            # A balance response has no status of its own: GraphQL errors are its failure
+            if legacy_response.errors() is None:
                 return StandardResponse.create_success(
                     legacy_response.payload(),
                     "query_balance_enhanced",
@@ -1237,7 +1240,7 @@ class KnishIOClient(object):
                 )
             else:
                 return StandardResponse.create_failure(
-                    legacy_response.reason() or "Balance query failed",
+                    str(legacy_response.errors()),
                     "query_balance_enhanced",
                     legacy_response.data(),
                     time.time() - start_time

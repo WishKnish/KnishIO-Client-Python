@@ -13,13 +13,14 @@ class Response(object):
         self.init_response(response)
 
     def init_response(self, response: dict):
-        if 'data' not in response:
-            raise InvalidResponseException(f"Invalid response structure: {json.dumps(response)}")
-
-        errors = response.get('errors')
+        # GraphQL errors first: an errors-only reply ({"errors": [...]}) carries no `data`
+        errors = response.get('errors') if isinstance(response, dict) else None
         if errors is not None and len(errors) > 0:
             self.__errors = errors
             return
+
+        if not isinstance(response, dict) or 'data' not in response:
+            raise InvalidResponseException(f"Invalid response structure: {json.dumps(response)}")
 
         data_key = self.data_key()
         data = response['data']

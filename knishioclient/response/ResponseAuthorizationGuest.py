@@ -8,14 +8,8 @@ class ResponseAuthorizationGuest(Response):
     Response for Guest Authorization Request
     """
     
-    def __init__(self, query, json_data):
-        """
-        Class constructor
-        
-        :param query: Query object
-        :param json_data: JSON response data
-        """
-        super().__init__(query, json_data, data_key='data.AccessToken')
+    def data_key(self):
+        return 'AccessToken'
     
     def reason(self):
         """

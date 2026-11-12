@@ -21,6 +21,9 @@ class MoleculeStructure(Base):
 
     cellSlugOrigin: str | bytes | None
 
+    # JS `get cellSlugDelimiter () { return '.' }`
+    cellSlugDelimiter = '.'
+
     def __init__(self, cell_slug: str | bytes | None = None):
         """
         :param cell_slug: str
@@ -28,11 +31,6 @@ class MoleculeStructure(Base):
         self.local = False
         self.cellSlugOrigin = cell_slug
         self.cellSlug = cell_slug
-
-    def __getattr__(self, key):
-        if key in 'cellSlugDelimiter':
-            return '.'
-        raise AttributeError(f"<{self!r}.{key!r}>")
 
     def with_counterparty(self, counterparty: str = None):
         """
