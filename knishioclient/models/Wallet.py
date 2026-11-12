@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 
+import os
 import string
 import base64
 import numpy as np
 from hashlib import shake_256 as shake
 from json import dumps, loads
 from typing import List, Dict, Any
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from ..libraries import strings, crypto, kcore
 from ..exception import WalletCredentialException
@@ -341,7 +343,7 @@ class Wallet(object):
 
     @classmethod
     def encrypt_with_shared_secret(cls, message: bytes, shared_secret: bytes) -> bytes:
-        iv = np.random.bytes(12)
+        iv = os.urandom(12)
         aesgcm = AESGCM(shared_secret)
         encrypted_content = aesgcm.encrypt(iv, message, None)
         return iv + encrypted_content
@@ -377,10 +379,7 @@ class Wallet(object):
         return aesgcm.decrypt(iv, ciphertext, None)
 
     def decrypt_message(self, encrypted_data: Dict[str, str]) -> Any:
-        cipher_text, encrypted_message = (
-            Wallet.deserialize_key(encrypted_data["cipherText"]),
-            Wallet.deserialize_key(encrypted_data["encryptedMessage"])
-        )
+        cipher_text = Wallet.deserialize_key(encrypted_data["cipherText"])
 
         # Inbound is PERMISSIVE: a ciphertext at either parameter set decrypts, provided it is
         # addressed to one of THIS wallet's own ML-KEM identities. The 64-byte seed is parameter-
@@ -406,11 +405,24 @@ class Wallet(object):
                 return None
             privkey = derived[1]
 
-        # Use @noble/post-quantum via Node.js bridge for 100% cross-SDK compatibility
-        shared_secret = crypto.noble_bridge_decaps(cipher_text, privkey)
+        # Failures read as "not decryptable" (None), as in JS Wallet.decryptMessage, except a
+        # missing libkcore under KNISHIO_KCORE=require, which must fail loudly.
+        try:
+            shared_secret = crypto.noble_bridge_decaps(cipher_text, privkey)
+        except kcore.KcoreUnavailable:
+            raise
+        except Exception:
+            return None
 
-        decrypted = Wallet.decrypt_with_shared_secret(encrypted_message, shared_secret)
-        return loads(decrypted.decode('utf-8'))
+        try:
+            encrypted_message = Wallet.deserialize_key(encrypted_data["encryptedMessage"])
+            decrypted = Wallet.decrypt_with_shared_secret(encrypted_message, shared_secret)
+            text = decrypted.decode('utf-8')
+        except (InvalidTag, ValueError, TypeError):
+            # InvalidTag: wrong key or tampered ciphertext; ValueError: bad base64, a short IV or
+            # invalid UTF-8 (UnicodeDecodeError is a ValueError)
+            return None
+        return loads(text)
 
     def hash_share(self, pubkey: str) -> str:
         """Canonical cross-SDK hashShare: standard base64 of SHAKE256(pubkey_utf8, 8 bytes) — byte-

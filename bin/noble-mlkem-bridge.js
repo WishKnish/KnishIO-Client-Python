@@ -1,20 +1,22 @@
 #!/usr/bin/env node
 
 /**
- * Noble ML-KEM Bridge for PHP
+ * Noble ML-KEM Bridge for the KnishIO Python SDK
  *
- * This Node.js script provides a bridge between PHP and the JavaScript
+ * This Node.js script provides a bridge between Python and the JavaScript
  * @noble/post-quantum library, ensuring 100% compatibility with the
  * JavaScript SDK's ML-KEM implementation.
  *
- * Usage:
- *   node noble-mlkem-bridge.js keygen <seedHex>
- *   node noble-mlkem-bridge.js encaps <publicKeyBase64>
- *   node noble-mlkem-bridge.js decaps <ciphertextBase64> <secretKeyBase64>
- *
- * @package WishKnish\KnishIO\Client
+ * Usage (the SDK's form): one JSON request on stdin, so seeds and secret keys never appear in
+ * the process arguments that other local users can read with ps or /proc/<pid>/cmdline:
+ *   echo '{"command":"keygen","args":["<seedHex>","1024"]}' | node noble-mlkem-bridge.js
+ *   {"command":"encaps","args":["<publicKeyBase64>"]}
+ *   {"command":"decaps","args":["<ciphertextBase64>","<secretKeyBase64>"]}
+ * The same commands are accepted as arguments (node noble-mlkem-bridge.js encaps <publicKeyBase64>)
+ * for manual use with public inputs only.
  */
 
+import { readFileSync } from 'node:fs';
 import { ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem.js';
 
 /**
@@ -116,45 +118,48 @@ function decaps(ciphertextBase64, secretKeyBase64) {
 }
 
 /**
+ * The request: the command line when it names a command, otherwise one JSON object on stdin
+ */
+function readRequest() {
+  const argv = process.argv.slice(2);
+  if (argv.length > 0) {
+    return { command: argv[0], args: argv.slice(1) };
+  }
+  const request = JSON.parse(readFileSync(0, 'utf8'));
+  if (!request || typeof request.command !== 'string' || !Array.isArray(request.args)) {
+    throw new Error('stdin must hold {"command": string, "args": [string, ...]}');
+  }
+  return { command: request.command, args: request.args.map(String) };
+}
+
+/**
  * Main entry point
  */
 function main() {
-  const args = process.argv.slice(2);
-
-  if (args.length < 1) {
-    console.error('Usage: noble-mlkem-bridge.js <command> [args...]');
-    console.error('Commands:');
-    console.error('  keygen <seedHex>                          - Generate key pair from seed');
-    console.error('  encaps <publicKeyBase64>                  - Encapsulate shared secret');
-    console.error('  decaps <ciphertextBase64> <secretKeyBase64> - Decapsulate shared secret');
-    process.exit(1);
-  }
-
-  const command = args[0];
-
   try {
+    const { command, args } = readRequest();
     let result;
 
     switch (command) {
       case 'keygen':
-        if (args.length < 2 || args.length > 3) {
+        if (args.length < 1 || args.length > 2) {
           throw new Error('keygen requires seedHex and optional paramSet argument');
         }
-        result = keygen(args[1], args[2] || '1024');
+        result = keygen(args[0], args[1] || '1024');
         break;
 
       case 'encaps':
-        if (args.length !== 2) {
+        if (args.length !== 1) {
           throw new Error('encaps requires publicKeyBase64 argument');
         }
-        result = encaps(args[1]);
+        result = encaps(args[0]);
         break;
 
       case 'decaps':
-        if (args.length !== 3) {
+        if (args.length !== 2) {
           throw new Error('decaps requires ciphertextBase64 and secretKeyBase64 arguments');
         }
-        result = decaps(args[1], args[2]);
+        result = decaps(args[0], args[1]);
         break;
 
       default:
@@ -167,8 +172,7 @@ function main() {
 
   } catch (error) {
     console.error(JSON.stringify({
-      error: error.message,
-      stack: error.stack
+      error: error.message
     }));
     process.exit(1);
   }

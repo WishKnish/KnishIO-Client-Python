@@ -955,7 +955,11 @@ class KnishIOClient(object):
         })
         
         if response.success():
-            self.client().set_auth_token(response.token())  # Use token() for guest auth
+            # Like a profile session: the transport gets the token, the validator's ML-KEM pubkey and
+            # the wallet that decrypts CipherHash replies, and encrypts when the caller asked for it.
+            self.client().set_auth_data(response.token(), response.pub_key(), wallet)
+            self.__authorization_wallet = wallet
+            self.client().set_encryption(encrypt)
             return response
         else:
             raise UnauthenticatedException(f'Guest authentication failed: {response.reason()}')

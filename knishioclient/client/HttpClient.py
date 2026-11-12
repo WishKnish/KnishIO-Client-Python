@@ -8,6 +8,7 @@ import threading
 import weakref
 from ..models import Coder
 from ..exception import CodeException
+from ..libraries.kcore import KcoreUnavailable
 
 # PQ-transport Phase E: the canonical ML-KEM CipherHash transport query (matches the Rust
 # validator's CipherHash handler + the other SDKs).
@@ -211,6 +212,9 @@ class HttpClient(object):
         if isinstance(hash_value, str):
             try:
                 decrypted = self.__wallet.decrypt_my_message_ml(json.loads(hash_value))
+            except KcoreUnavailable:
+                # KNISHIO_KCORE=require with no loadable libkcore is a setup error, not a bad reply
+                raise
             except Exception as e:
                 raise CodeException('CipherHash: reply could not be decrypted') from e
             if decrypted is None:

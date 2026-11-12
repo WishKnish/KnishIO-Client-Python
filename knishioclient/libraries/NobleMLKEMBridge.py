@@ -9,6 +9,7 @@ This is a proven pattern also used by the PHP SDK to guarantee cross-SDK compati
 """
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Dict, Tuple, Optional
@@ -32,21 +33,12 @@ class NobleMLKEMBridge:
         if cls._initialized:
             return
 
-        # Find Node.js command
-        node_commands = ['node', 'nodejs']
-        for cmd in node_commands:
-            try:
-                result = subprocess.run(
-                    ['which', cmd],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    cls._node_command = result.stdout.strip()
-                    break
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                continue
+        # Find Node.js command (shutil.which also works where there is no `which`, e.g. Windows)
+        for cmd in ('node', 'nodejs'):
+            found = shutil.which(cmd)
+            if found:
+                cls._node_command = found
+                break
 
         if cls._node_command is None:
             raise RuntimeError(
@@ -85,71 +77,57 @@ class NobleMLKEMBridge:
         cls._initialized = True
 
     @classmethod
-    def _execute_command(cls, args: list) -> Dict:
+    def _execute_command(cls, command: str, args: list) -> Dict:
         """
         Execute bridge command via Node.js subprocess.
 
+        The request travels as one JSON object on the child's stdin, never in its argv: seeds and
+        secret keys in argv are readable by every local user (ps, /proc/<pid>/cmdline).
+
         Args:
-            args: Command arguments (e.g., ['keygen', seedHex])
+            command: 'keygen', 'encaps' or 'decaps'
+            args: Command arguments (e.g., [seedHex, '1024'])
 
         Returns:
             Decoded JSON response from bridge
 
         Raises:
-            RuntimeError: If command fails or returns error
+            RuntimeError: If command fails or returns error. The message never contains the
+                request or the bridge's stdout, which may hold key material.
         """
         cls._initialize()
 
-        # Build command
-        command = [cls._node_command, str(cls._bridge_script)] + args
-
         try:
             result = subprocess.run(
-                command,
+                [cls._node_command, str(cls._bridge_script)],
+                input=json.dumps({'command': command, 'args': [str(arg) for arg in args]}),
                 capture_output=True,
                 text=True,
                 timeout=30,
                 check=False
             )
         except subprocess.TimeoutExpired:
-            raise RuntimeError('Noble ML-KEM bridge command timed out after 30 seconds')
+            raise RuntimeError(f'Noble ML-KEM bridge {command} timed out after 30 seconds')
         except Exception as e:
-            raise RuntimeError(f'Failed to execute Noble ML-KEM bridge: {e}')
+            raise RuntimeError(f'Failed to execute Noble ML-KEM bridge {command}: {type(e).__name__}')
 
-        # Parse output - look for JSON in stdout
-        output_lines = result.stdout.strip().split('\n')
-        json_line = None
-
-        for line in output_lines:
-            if line.startswith('{'):
-                json_line = line
-                break
-
-        if json_line is None:
-            # Try parsing entire output as JSON
-            json_line = result.stdout.strip()
-
-        # Parse JSON response
         try:
-            response = json.loads(json_line) if json_line else None
+            response = json.loads(result.stdout.strip()) if result.returncode == 0 else None
         except json.JSONDecodeError:
             response = None
 
-        # Check for errors
-        if result.returncode != 0 or response is None:
-            error_msg = response.get('error') if isinstance(response, dict) else None
-            if error_msg:
-                raise RuntimeError(f'Noble ML-KEM bridge error: {error_msg}')
-
-            stderr_output = result.stderr.strip() if result.stderr else 'No error output'
+        if not isinstance(response, dict):
+            # The bridge reports failures as {"error": message} on stderr
+            try:
+                error_msg = json.loads(result.stderr.strip()).get('error')
+            except (ValueError, AttributeError):
+                error_msg = None
             raise RuntimeError(
-                f'Noble ML-KEM bridge command failed (exit code: {result.returncode})\n'
-                f'Command: {" ".join(command)}\n'
-                f'Stdout: {result.stdout}\n'
-                f'Stderr: {stderr_output}'
+                f'Noble ML-KEM bridge {command} failed (exit code: {result.returncode}): '
+                f'{error_msg or "no error message"}'
             )
 
-        if isinstance(response, dict) and 'error' in response:
+        if 'error' in response:
             raise RuntimeError(f'Noble ML-KEM error: {response["error"]}')
 
         return response
@@ -176,7 +154,7 @@ class NobleMLKEMBridge:
         if len(seed_hex) != 128:
             raise ValueError('Seed must be exactly 128 hex characters')
 
-        result = cls._execute_command(['keygen', seed_hex, str(param_set)])
+        result = cls._execute_command('keygen', [seed_hex, str(param_set)])
 
         if 'publicKey' not in result or 'secretKey' not in result:
             raise RuntimeError('Invalid response from Noble ML-KEM bridge: missing keys')
@@ -207,7 +185,7 @@ class NobleMLKEMBridge:
         import base64
         public_key_b64 = base64.b64encode(public_key).decode('utf-8')
 
-        result = cls._execute_command(['encaps', public_key_b64])
+        result = cls._execute_command('encaps', [public_key_b64])
 
         if 'ciphertext' not in result or 'sharedSecret' not in result:
             raise RuntimeError('Invalid response from Noble ML-KEM bridge: missing encapsulation data')
@@ -239,7 +217,7 @@ class NobleMLKEMBridge:
         ciphertext_b64 = base64.b64encode(ciphertext).decode('utf-8')
         secret_key_b64 = base64.b64encode(secret_key).decode('utf-8')
 
-        result = cls._execute_command(['decaps', ciphertext_b64, secret_key_b64])
+        result = cls._execute_command('decaps', [ciphertext_b64, secret_key_b64])
 
         if 'sharedSecret' not in result:
             raise RuntimeError('Invalid response from Noble ML-KEM bridge: missing shared secret')

@@ -97,6 +97,21 @@ detail, the entry says so instead of guessing.
   node with a self-signed certificate needs the explicit opt-out
   `KnishIOClient(url, insecure_tls=True)` (or `HttpClient(url, insecure_tls=True)`), the same
   option the Rust and C SDKs call `insecure_tls` and the Kotlin and C++ SDKs `insecureTls`.
+- AES-256-GCM IVs (`Wallet.encrypt_with_shared_secret`, used by `encrypt_message` and every
+  CipherHash envelope) come from `os.urandom`. They came from `numpy.random.bytes`, a Mersenne
+  Twister that is predictable from its output and repeats across `fork()`.
+- The Node ML-KEM bridge (used when libkcore is off or absent) receives its request as JSON on
+  stdin. ML-KEM seeds and secret keys used to be passed as command-line arguments, readable by any
+  local user through `ps` or `/proc/<pid>/cmdline`, and a failed call put the whole command line
+  in the `RuntimeError` message. Errors now carry only the bridge's error text. Node is located
+  with `shutil.which` (the `which` program is absent on Windows).
+- `request_guest_auth_token(encrypt=True)` turns the encrypted transport on: the transport gets the
+  guest token, the validator's ML-KEM key and the guest wallet, as a profile login does. Guest
+  sessions used to send every later request in plaintext.
+- `KcoreUnavailable` (`KNISHIO_KCORE=require` without a loadable libkcore) propagates out of
+  `Wallet.decrypt_message` and the CipherHash reply path instead of reading as an undecryptable
+  reply. A wrong key, tampered ciphertext or malformed envelope makes `decrypt_message` return
+  `None`, as JS `Wallet.decryptMessage` does; it used to raise `InvalidTag`.
 
 ## [1.7.1] — 2026-10-29
 
