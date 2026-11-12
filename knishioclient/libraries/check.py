@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+import math
 import re
 import base64
 import binascii
@@ -16,10 +17,43 @@ _RFC3339_TIMESTAMP = re.compile(
     r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})\Z', re.ASCII
 )
 _DIGITS = re.compile(r'^\d+\Z', re.ASCII)
+# A decimal number as JS Number() reads one: optional sign, digits with an optional fraction (or a
+# bare fraction), optional exponent. Python's float() also takes "nan", "inf" and "1_0"; JS does not.
+_DECIMAL = re.compile(r'^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?\Z', re.ASCII)
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 # Atom versions retried, in order, when a molecule is served without atom versions.
 _UNSERVED_ATOM_VERSIONS = ('4', '3')
+
+
+def atom_value(value: Any) -> float:
+    """
+    An atom value as a finite number, the way JS ``Number(value)`` reads it: None and an empty or
+    blank string are 0, numbers are themselves, a decimal string is parsed. Anything else (letters,
+    NaN, Infinity, Python-only forms such as "1_0") raises TransferMalformedException.
+
+    :param value: Any
+    :return: float
+    :raises TransferMalformedException:
+    """
+    if value is None:
+        return 0.0
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        number = float(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        if text == '':
+            return 0.0
+        if not _DECIMAL.match(text):
+            raise TransferMalformedException('Check: atom value %r is not a number' % value)
+        number = float(text)
+    else:
+        raise TransferMalformedException('Check: atom value %r is not a number' % (value,))
+    if not math.isfinite(number):
+        raise TransferMalformedException('Check: atom value %r is not a finite number' % (value,))
+    return number
 
 
 def verify(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
@@ -35,6 +69,7 @@ def verify(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
     for fun in (
         'molecular_hash',
         'ots',
+        'batch_id',
         'continu_id',
         'isotope_m',
         'isotope_c',
@@ -57,6 +92,27 @@ def verify(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
             globals()[fun](molecule, sender)
         else:
             globals()[fun](molecule)
+    return True
+
+
+def batch_id(molecule: 'Molecule') -> bool:
+    """
+    Mirrors JS CheckMolecule.batchId: when the signing atom is a V atom with a batch id, the last V
+    atom (the remainder) carries the same batch id and every V atom carries one.
+
+    :param molecule: Molecule
+    :return: bool
+    :raise [BatchIdException, MolecularHashMissingException, AtomsMissingException]
+    """
+    missing(molecule)
+    signing_atom = molecule.atoms[0]
+    if signing_atom.isotope == 'V' and signing_atom.batchId is not None:
+        v_atoms = isotope_filter('V', molecule.atoms)
+        if signing_atom.batchId != v_atoms[-1].batchId:
+            raise BatchIdException('Check::batch_id() - the remainder batch id differs from the signer\'s')
+        for atom in v_atoms:
+            if atom.batchId is None:
+                raise BatchIdException('Check::batch_id() - a V atom has no batch id')
     return True
 
 
@@ -86,14 +142,14 @@ def isotope_t(molecule: 'Molecule') -> bool:
         meta = models.Meta.aggregate_meta(models.Meta.normalize_meta(atom.meta))
         meta_type = (atom.metaType or '').lower()
 
-        if meta_type in 'wallet':
+        if meta_type == 'wallet':
             for key in ('position', 'bundle',):
-                if key not in meta or meta[key] is None:
+                if not meta.get(key):
                     raise MetaMissingException('No or not defined %s in meta' % key)
         for key in ('token',):
-            if key not in meta or meta[key] is None:
+            if not meta.get(key):
                 raise MetaMissingException('No or not defined %s in meta' % key)
-        if atom.token not in 'USER':
+        if atom.token != 'USER':
             raise WrongTokenTypeException('Invalid token name for %s isotope' % atom.isotope)
         if atom.index != 0:
             raise AtomIndexException('Invalid isotope "%s" index' % atom.isotope)
@@ -125,7 +181,7 @@ def isotope_i(molecule: 'Molecule') -> bool:
     missing(molecule)
 
     for atom in isotope_filter('I', molecule.atoms):
-        if atom.token not in 'USER':
+        if atom.token != 'USER':
             raise WrongTokenTypeException('Invalid token name for %s isotope' % atom.isotope)
         if atom.index == 0:
             raise AtomIndexException('Invalid isotope "%s" index' % atom.isotope)
@@ -174,6 +230,9 @@ def isotope_u(molecule: 'Molecule') -> bool:
     missing(molecule)
 
     for atom in isotope_filter('U', molecule.atoms):
+        # AUTH for a first login; USER for a re-login signed from the identity's ContinuID wallet
+        if atom.token not in ('AUTH', 'USER'):
+            raise WrongTokenTypeException('Invalid token name for %s isotope' % atom.isotope)
         if atom.index != 0:
             raise AtomIndexException('Invalid isotope "%s" index' % atom.isotope)
     return True
@@ -183,15 +242,34 @@ def isotope_m(molecule: 'Molecule') -> bool:
     """
     :param molecule: Molecule
     :return: bool
-    :raise [MetaMissingException, WrongTokenTypeException, MolecularHashMissingException, AtomsMissingException]
+    :raise [MetaMissingException, WrongTokenTypeException, PolicyInvalidException,
+     MolecularHashMissingException, AtomsMissingException]
     """
     missing(molecule)
+    policy_keys = ('readPolicy', 'writePolicy')
 
     for atom in isotope_filter('M', molecule.atoms):
         if len(atom.meta) < 1:
             raise MetaMissingException()
-        if atom.token not in 'USER':
+        if atom.token != 'USER':
             raise WrongTokenTypeException('Invalid token name for %s isotope' % atom.isotope)
+
+        # Mirrors JS CheckMolecule.isotopeM: every policy entry other than readPolicy/writePolicy
+        # names a key present in the meta, and lists only bundle hashes, "all" or "self".
+        metas = models.Meta.aggregate_meta(models.Meta.normalize_meta(atom.meta))
+        for key in policy_keys:
+            if not metas.get(key):
+                continue
+            policy = json.loads(metas[key])
+            for policy_name, policy_value in policy.items():
+                if policy_name in policy_keys:
+                    continue
+                if policy_name not in metas:
+                    raise PolicyInvalidException('%s is missing from the meta.' % policy_name)
+                for value in policy_value:
+                    if not (isinstance(value, str) and models.Wallet.is_bundle_hash(value)) \
+                            and value not in ('all', 'self'):
+                        raise PolicyInvalidException('%s does not correspond to the format of the policy.' % value)
 
     return True
 
@@ -286,22 +364,14 @@ def isotope_b(molecule: 'Molecule') -> bool:
         if not atom.metaId:
             raise MetaMissingException('Check::isotope_b() - B-isotope atoms must have a metaId!')
 
-        try:
-            strings.number(atom.value)
-        except (TypeError, ValueError):
-            raise TransferMalformedException(
-                'Check::isotope_b() - B-isotope atom value is not a valid number!'
-            )
+        atom_value(atom.value)
 
     # V+B balance conservation: sum of all V and B atom values must equal zero
     v_atoms = isotope_filter('V', molecule.atoms)
     if len(v_atoms) > 0:
         total = 0
         for atom in v_atoms + atoms:
-            try:
-                total += strings.number(atom.value)
-            except (TypeError, ValueError):
-                continue
+            total += atom_value(atom.value)
         if not decimal.equal(total, 0):
             raise TransferUnbalancedException(
                 'Check::isotope_b() - V+B atom values do not balance to zero!'
@@ -338,12 +408,7 @@ def isotope_f(molecule: 'Molecule') -> bool:
         if not atom.metaId:
             raise MetaMissingException('Check::isotope_f() - F-isotope atoms must have a metaId!')
 
-        try:
-            value = strings.number(atom.value)
-        except (TypeError, ValueError):
-            raise TransferMalformedException(
-                'Check::isotope_f() - F-isotope atom value is not a valid number!'
-            )
+        value = atom_value(atom.value)
 
         if value < 0:
             raise TransferMalformedException(
@@ -355,10 +420,7 @@ def isotope_f(molecule: 'Molecule') -> bool:
     if len(v_atoms) > 0:
         total = 0
         for atom in v_atoms + atoms:
-            try:
-                total += strings.number(atom.value)
-            except (TypeError, ValueError):
-                continue
+            total += atom_value(atom.value)
         if not decimal.equal(total, 0):
             raise TransferUnbalancedException(
                 'Check::isotope_f() - V+F atom values do not balance to zero!'
@@ -404,13 +466,13 @@ def isotope_v(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
         end_atom = v_atoms[len(v_atoms) - 1]
         if first_atom.token != end_atom.token:
             raise TransferMismatchedException()
-        if strings.number(end_atom.value) < 0:
+        if atom_value(end_atom.value) < 0:
             raise TransferMalformedException()
         # Conservation for 2-atom transfers (JS :519-521). This branch returns early, so
         # without it the general sum check below is never reached and a two-atom transfer
         # that creates or destroys value is accepted.
         if not decimal.equal(
-            strings.number(first_atom.value) + strings.number(end_atom.value), 0
+            atom_value(first_atom.value) + atom_value(end_atom.value), 0
         ):
             raise TransferUnbalancedException()
         return True
@@ -422,10 +484,10 @@ def isotope_v(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
             continue
 
         # Making sure we're in integer land
-        value = strings.number(v_atom.value)
+        value = atom_value(v_atom.value)
 
         # Making sure all V atoms of the same token
-        if v_atom.token not in first_atom.token:
+        if v_atom.token != first_atom.token:
             raise TransferMismatchedException()
 
         # Checking non-primary atoms
@@ -445,7 +507,7 @@ def isotope_v(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
             # bundle + batchId), so it can never be a self-transfer — skip the
             # check rather than crash on `None in <str>`.
             if v_atom.walletAddress and first_atom.walletAddress \
-                    and v_atom.walletAddress in first_atom.walletAddress:
+                    and v_atom.walletAddress == first_atom.walletAddress:
                 raise TransferToSelfException()
 
         # Adding this Atom's value to the total sum
@@ -458,7 +520,7 @@ def isotope_v(molecule: 'Molecule', sender: 'Wallet' = None) -> bool:
 
     # If we're provided with a senderWallet argument, we can perform additional checks
     if sender is not None:
-        remainder = strings.number(sender.balance) + strings.number(first_atom.value)
+        remainder = strings.number(sender.balance) + atom_value(first_atom.value)
 
         # Is there enough balance to send?
         try:

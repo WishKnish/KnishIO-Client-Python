@@ -39,6 +39,20 @@ detail, the entry says so instead of guessing.
   `Wallet.encrypt_my_message()`, which does not exist, so either raised `AttributeError` when
   called; nothing in the SDK called them. `Wallet.encrypt_message()` is unchanged.
 
+### Fixed
+
+- `check.verify()` (and `Molecule.check()`, `verify_from_server_data()`) follows the JS
+  `CheckMolecule` rules it used to approximate. Token checks are equality tests: T, I and M atoms
+  with a token such as `""`, `"U"` or `"SER"` (substrings of `USER`) and V atoms whose token is a
+  substring of the signer's (`"TOKEN"` beside `"TESTTOKEN"`) were accepted and are now rejected. B,
+  F and V values must be numbers (`check.atom_value`, read as JS `Number()` reads them): `"abc"` was
+  counted as 0 and passed. New checks ported from JS: `batch_id` (the remainder V atom carries the
+  signer's batch id, every V atom carries one), U atoms must be `AUTH` or `USER`, and M-atom
+  `readPolicy`/`writePolicy` entries must name a meta key and list only bundle hashes, `all` or
+  `self` (`PolicyInvalidException`). A T atom checks `position`/`bundle` only when its `metaType`
+  is `wallet` (an empty `metaType` matched before), and two V atoms are a self-transfer only when
+  their addresses are equal, not when one contains the other.
+
 ### Security
 
 - `HttpClient` accepts a reply to a request it wrapped in the CipherHash envelope only as an
