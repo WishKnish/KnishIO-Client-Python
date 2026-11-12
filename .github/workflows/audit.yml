@@ -6,11 +6,12 @@
 # tree with no commits. python-package.yml answers "did this change break anything"; this file
 # answers "did the world change underneath us". Only the second question has a clock.
 #
-# All FOUR requirement sets are scanned; the dev toolchain is the point of this file:
+# All FIVE requirement sets are scanned; the dev toolchain is the point of this file:
 #   requirements.txt       the runtime floors a consumer resolves against
 #   requirements.lock      the reproducible runtime resolution
 #   requirements-dev.txt   the dev toolchain — where a build-time supply-chain attack lands
 #   requirements-dev.lock  the hashed dev resolution CI and publish install from
+#   requirements-build.lock  the hashed resolution of the wheel build frontend
 #
 # NOTE: scheduled workflows only fire from the DEFAULT BRANCH. This file has no effect until
 # it is merged there — a branch-only copy runs never, silently.
@@ -76,6 +77,7 @@ jobs:
           pip-audit -r requirements.lock
           pip-audit -r requirements-dev.txt
           pip-audit -r requirements-dev.lock
+          pip-audit -r requirements-build.lock
 
   # The shipped graph as a CycloneDX SBOM (pip runtime lock + the bin/ ML-KEM bridge + bundled
   # libkcore and its pinned upstream commits), re-scanned with OSV against today's advisories.

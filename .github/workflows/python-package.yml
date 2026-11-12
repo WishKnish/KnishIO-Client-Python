@@ -2,6 +2,9 @@ name: Python package
 
 on: [push, pull_request]
 
+permissions:
+  contents: read
+
 jobs:
   # Catch version drift at commit time, not at release time. The publish workflow already
   # refuses a tag that disagrees with the manifest, but that only fires on a tag push, so
@@ -44,13 +47,14 @@ jobs:
         pip-audit -r requirements.lock
         pip-audit -r requirements-dev.txt
         pip-audit -r requirements-dev.lock
+        pip-audit -r requirements-build.lock
     - name: Set up Node.js (for the ML-KEM noble bridge)
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
       with:
         node-version: '20'
     - name: Install ML-KEM bridge deps (@noble/post-quantum)
       working-directory: bin
-      run: npm ci
+      run: npm ci --ignore-scripts
     # libkcore for this runner, from the sha256-pinned KnishIO-Crypto-Core Release, so the suite
     # runs once through kcore and once through the pure-Python/Node-bridge fallback.
     - name: Fetch libkcore (linux-x64-gnu)

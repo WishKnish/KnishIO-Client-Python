@@ -35,14 +35,14 @@ jobs:
 
       - name: Install ML-KEM bridge deps (@noble/post-quantum)
         working-directory: bin
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Build
         env:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          pip install build
+          pip install --require-hashes -r requirements-build.lock
           if [ "$TARGET" = pure ]; then
             python -m build
           else
@@ -170,7 +170,7 @@ jobs:
       - name: Install the wheel and check it (Alpine, musl)
         if: matrix.how == 'alpine'
         run: |
-          docker run --rm -v "$PWD:/w" -w /w -e MODE alpine:3.20 sh -c '
+          docker run --rm -v "$PWD:/w" -w /w -e MODE alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f sh -c '
             set -e
             apk add --no-cache python3 py3-pip libsodium build-base python3-dev libffi-dev > /dev/null
             python3 -m venv /tmp/v
