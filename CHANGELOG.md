@@ -18,6 +18,17 @@ detail, the entry says so instead of guessing.
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-11-12
+
+### Upgrade notes
+
+- `Query.get_request_body()` and `Molecule.encrypt_message()` are removed (see Removed).
+- `Molecule` builders build their atoms as the JS SDK does, which changes signed bytes (see Fixed).
+- A reply to a request sent in the CipherHash envelope is accepted only as an encrypted envelope; a
+  plaintext reply now fails (see Security).
+- `HttpClient` verifies the server's TLS certificate and hostname by default, and `KcoreUnavailable`
+  propagates (see Security).
+
 ### Added
 
 - `tests/test_kcore_parity_vectors.py` checks the 16 cross-SDK kcore parity molecules
@@ -699,7 +710,8 @@ published) fixed policy ContinuID signing (F-3) by signing the R-atom from the
 established source wallet. See the git tag history and the
 [PyPI release list](https://pypi.org/project/knishioclient/#history).
 
-[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.7.1...HEAD
+[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.8.0...HEAD
+[1.8.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.8.0
 [1.7.1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.7.1
 [1.7.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.7.0
 [1.6.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.6.0

@@ -17,7 +17,7 @@ from .storage import (
     create_default_secret_storage,
 )
 
-__version__ = '1.7.1'
+__version__ = '1.8.0'
 
 name = "knishioclient"
 
