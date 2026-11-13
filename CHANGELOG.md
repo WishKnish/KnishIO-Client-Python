@@ -32,6 +32,9 @@ detail, the entry says so instead of guessing.
 - `aiohttp` 3.14.5; the build requires setuptools ≥ 84.2.1; development tools pytest ≥ 9.2.0 and
   ruff ≥ 0.17.3. Both lock files are regenerated at `--exclude-newer 2026-11-01T00:00:00Z`, with only
   those packages moved.
+- The platform wheels bundle libkcore from KnishIO-Crypto-Core 0.2.1 (was 0.2.0;
+  `scripts/kcore-pins.json`), which zeroes ML-KEM secrets, WOTS+ chain preimages and Keccak state on
+  the stack before each call returns. Outputs and the ABI are unchanged.
 
 ### Removed
 
