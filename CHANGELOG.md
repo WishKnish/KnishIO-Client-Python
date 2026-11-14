@@ -18,6 +18,16 @@ detail, the entry says so instead of guessing.
 
 ## [Unreleased]
 
+## [1.8.1] — 2026-11-13
+
+### Upgrade notes
+
+- `request_tokens` looks the token up first and gains `batch_id` and `units`; `requested_amount` is
+  optional when `units` is given (see Fixed).
+- A rejected guest authorization raises `AuthorizationRejectedException` (see Fixed).
+- `init_token_creation` keeps token metas in order, duplicates included, which changes signed bytes
+  for such metas (see Fixed).
+
 ### Changed
 
 - `Wallet.generate_key` adds the position to the secret with plain Python integers instead of
@@ -740,7 +750,8 @@ published) fixed policy ContinuID signing (F-3) by signing the R-atom from the
 established source wallet. See the git tag history and the
 [PyPI release list](https://pypi.org/project/knishioclient/#history).
 
-[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.8.0...HEAD
+[Unreleased]: https://github.com/WishKnish/KnishIO-Client-Python/compare/1.8.1...HEAD
+[1.8.1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.8.1
 [1.8.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.8.0
 [1.7.1]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.7.1
 [1.7.0]: https://github.com/WishKnish/KnishIO-Client-Python/releases/tag/1.7.0
