@@ -18,6 +18,36 @@ detail, the entry says so instead of guessing.
 
 ## [Unreleased]
 
+### Changed
+
+- `Wallet.generate_key` adds the position to the secret with plain Python integers instead of
+  `numpy` object arrays. The keys are unchanged (pinned by `IndexedKeyTest` in
+  `tests/test_ots_v2_vectors.py`); `numpy` is still a dependency (`libraries/strings.py` uses it).
+
+### Fixed
+
+- `QueryToken`, `QueryMetaType`, `QueryWalletBundle` and `QueryAtom` spelled GraphQL list
+  types with spaces inside the brackets (`[ String! ]`). The Rust validator's parser
+  rejects that ("expected type_") although GraphQL allows it, so these queries failed against it;
+  `request_tokens` therefore never saw a token as stackable. They are now spelled `[String!]`.
+- `KnishIOClient.request_tokens()` looked nothing up and could not send a batch id or units. It now
+  queries the token first, as JS `requestTokens` does: a stackable token gets the given `batch_id`
+  or a generated one, a non-stackable token with a `batch_id` raises `BatchIdException`, and
+  `units` set the amount to their count and the `tokenUnits` meta (`StackableUnitAmountException`
+  when an amount above zero is also given). `requested_amount` is optional, and
+  `MutationRequestTokens.fill_molecule()` forwards `batch_id` to the T atom.
+- `KnishIOClient.request_guest_auth_token()` raised `UnauthenticatedException` on a rejected reply;
+  it now raises `AuthorizationRejectedException`, as JS does. A validator reply
+  (`AccessToken { token, pubkey, expiresAt }`) failed because `ResponseRequestAuthorizationGuest.pub_key()`
+  read `key`; it now reads `pubkey` (then `key`), and `encrypt()` returns `None` when the reply has
+  no `encrypt` field. The guest secret stays random: JS derives it from the browser fingerprint and
+  is random outside a browser too.
+- `Molecule.init_token_creation()` collapsed `[{key, value}]` metas into a dict, dropping repeated
+  keys and reordering integer-like keys, and skipped the source wallet's unit metas. The C atom now
+  carries the metas as given, as JS `initTokenCreation` does (signed bytes change for such metas;
+  pinned to the JS digest). `KnishIOClient.create_token()` accepts list metas (it failed on
+  `.get('fungibility')`) and no longer modifies the caller's metas.
+
 ## [1.8.0] — 2026-11-12
 
 ### Upgrade notes

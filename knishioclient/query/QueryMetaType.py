@@ -6,7 +6,7 @@ from .Query import Query
 class QueryMetaType(Query):
     def __init__(self, knish_io_client: 'KnishIOClient', query: str = None):
         super(QueryMetaType, self).__init__(knish_io_client, query)
-        self.default_query = 'query( $metaType: String, $metaTypes: [ String! ], $metaId: String, $metaIds: [ String! ], $key: String, $keys: [ String! ], $value: String, $values: [ String! ], $count: String, $latest: Boolean, $filter: [ MetaFilter! ], $queryArgs: QueryArgs, $countBy: String, $cellSlug: String ) { MetaType( metaType: $metaType, metaTypes: $metaTypes, metaId: $metaId, metaIds: $metaIds, key: $key, keys: $keys, value: $value, values: $values, count: $count, filter: $filter, queryArgs: $queryArgs, countBy: $countBy, cellSlug: $cellSlug ) @fields }'
+        self.default_query = 'query( $metaType: String, $metaTypes: [String!], $metaId: String, $metaIds: [String!], $key: String, $keys: [String!], $value: String, $values: [String!], $count: String, $latest: Boolean, $filter: [MetaFilter!], $queryArgs: QueryArgs, $countBy: String, $cellSlug: String ) { MetaType( metaType: $metaType, metaTypes: $metaTypes, metaId: $metaId, metaIds: $metaIds, key: $key, keys: $keys, value: $value, values: $values, count: $count, filter: $filter, queryArgs: $queryArgs, countBy: $countBy, cellSlug: $cellSlug ) @fields }'
         self.fields = {
             "metaType": None,
             "instanceCount": {

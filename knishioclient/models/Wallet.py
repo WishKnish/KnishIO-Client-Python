@@ -3,7 +3,6 @@
 import os
 import string
 import base64
-import numpy as np
 from hashlib import shake_256 as shake
 from json import dumps, loads
 from typing import List, Dict, Any
@@ -309,10 +308,8 @@ class Wallet(object):
         hex_digits = set('0123456789abcdefABCDEF')
         secret_hex = secret if (secret and all(c in hex_digits for c in secret)) else crypto.shake256(secret, 1024)
         position_hex = position if (position and all(c in hex_digits for c in position)) else crypto.shake256(position, 256)
-        # Converting secret to bigInt
-        # Adding new position to the user secret to produce the indexed key
-        indexed_key = '%x' % np.add(np.array([int(secret_hex, 16)], dtype='object'),
-                                    np.array([int(position_hex, 16)], dtype='object'))[0]
+        # Adding the position to the secret (exact integers, as JS BigInt) produces the indexed key
+        indexed_key = f'{int(secret_hex, 16) + int(position_hex, 16):x}'
         if ots_version == 2:
             # OTS v2: domain-separated stage 1, 8192-bit intermediate, 32768-bit (8192-hex) key
             stage1 = 'KnishIO-OTS-v2|' + indexed_key + '|' + (token or '')

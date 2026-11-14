@@ -162,7 +162,7 @@ class ClientBuildsLikeJsTest(unittest.TestCase):
         client.set_secret(SECRET)
         return client
 
-    def _captured_fill(self, client, call):
+    def _captured_fill(self, client, call, fungibility='fungible'):
         captured = {}
 
         class _Query:
@@ -174,6 +174,7 @@ class ClientBuildsLikeJsTest(unittest.TestCase):
                 return 'executed'
 
         with mock.patch.object(type(client), 'create_molecule_mutation', return_value=_Query()), \
+                mock.patch.object(type(client), 'create_query', return_value=_token_query(fungibility)), \
                 mock.patch.object(Wallet, 'generate_position', return_value=B):
             call()
         return captured['args']
@@ -196,6 +197,23 @@ class ClientBuildsLikeJsTest(unittest.TestCase):
         to = _wallet(OTHER, 'TEST', B, ots_version=client.get_ots_version())
         self.assertEqual(('TEST', 100, 'wallet', to.address), args[:4])
         self.assertEqual({'position': B, 'bundle': to.bundle}, args[4])
+
+    def test_create_token_with_list_metas_keeps_them(self):
+        client = self._client()
+        metas = [{'key': 'tag', 'value': 'a'}, {'key': 'tag', 'value': 'b'}]
+        args = self._captured_fill(client, lambda: client.create_token('TOK', 100, metas))
+        self.assertEqual((100, metas), args[1:3])
+
+    def test_create_token_with_list_metas_adds_the_unit_metas(self):
+        client = self._client()
+        metas = [{'key': 'fungibility', 'value': 'stackable'}, {'key': 'tag', 'value': 'a'}]
+        args = self._captured_fill(client, lambda: client.create_token('TOK', None, metas, units=['u1', 'u2']))
+        self.assertEqual(2, args[1])
+        self.assertEqual(metas + [{'key': 'splittable', 'value': '1'}, {'key': 'decimals', 'value': '0'},
+                                  {'key': 'tokenUnits', 'value': '[["u1","u1",{}],["u2","u2",{}]]'}],
+                         AtomMeta(args[2]).get())
+        self.assertEqual(2, len(metas))
+        self.assertEqual(64, len(args[0].batchId))
 
     def test_extracting_authorization_wallet_keeps_token_and_position(self):
         client = self._client()
@@ -233,6 +251,75 @@ class ClientBuildsLikeJsTest(unittest.TestCase):
             molecule = client.create_molecule(source_wallet=token_wallet)
         self.assertEqual('4', molecule.version)
         self.assertEqual(D, molecule.continuIdPosition)
+
+
+def _token_query(fungibility):
+    """A QueryToken stand-in whose reply names the token's fungibility."""
+    response = mock.Mock()
+    response.data.return_value = [{'slug': 'STK', 'fungibility': fungibility}]
+    return mock.Mock(execute=mock.Mock(return_value=response))
+
+
+# JS digests for the request-tokens and token-creation cases below (KNISHIO_KCORE=off, 2026-11-13)
+JS_REQUEST_STACKABLE_UNITS = '003gdggc3g7aab0769548b5645254d77g68gf0baa9a9g6456a04g167d13f28fd'
+JS_CREATE_TOKEN_REPEATED_KEY = '0204ecbd261ec3ed1493g99g4b8f3dc7b4136341622e8131011d5724d8778f69'
+
+
+class RequestTokensLikeJsTest(unittest.TestCase):
+    """JS requestTokens: the token is looked up first; a stackable token gets a batch id and
+    units set the amount and the tokenUnits meta."""
+
+    def _request(self, fungibility, *args, **kwargs):
+        from knishioclient.client import KnishIOClient
+        from knishioclient.mutation import MutationRequestTokens
+        client = KnishIOClient('https://example.invalid')
+        client.set_secret(SECRET)
+        molecule = _molecule(_wallet(SECRET, 'USER', A))
+        mutation = MutationRequestTokens(client, molecule)
+        with mock.patch.object(type(client), 'create_query', return_value=_token_query(fungibility)), \
+                mock.patch.object(type(client), 'create_molecule_mutation', return_value=mutation), \
+                mock.patch.object(MutationRequestTokens, 'execute', return_value='executed'), \
+                mock.patch.object(crypto, 'generate_batch_id', return_value='11' * 32):
+            self.assertEqual('executed', client.request_tokens(*args, **kwargs))
+        return molecule
+
+    def test_stackable_units_set_amount_batch_id_and_token_units(self):
+        molecule = self._request('stackable', 'STK', units=['u1', 'u2'])
+        (atom,) = [atom for atom in molecule.atoms if atom.isotope == 'T']
+        self.assertEqual('2', atom.value)
+        self.assertEqual('11' * 32, atom.batchId)
+        self.assertEqual([{'key': 'tokenUnits', 'value': '["u1","u2"]'}, {'key': 'token', 'value': 'STK'},
+                          {'key': 'amount', 'value': '2'}], atom.meta)
+        self.assertEqual(('walletBundle', BUNDLE), (atom.metaType, atom.metaId))
+        self.assertEqual(JS_REQUEST_STACKABLE_UNITS, _digest(molecule))
+
+    def test_non_stackable_token_rejects_a_batch_id(self):
+        from knishioclient.exception import BatchIdException
+        with self.assertRaisesRegex(BatchIdException, 'Expected Batch ID = null for non-stackable tokens.'):
+            self._request('fungible', 'TEST', 100, batch_id='x')
+
+    def test_units_and_an_amount_together_are_rejected(self):
+        from knishioclient.exception import StackableUnitAmountException
+        with self.assertRaises(StackableUnitAmountException):
+            self._request('stackable', 'STK', 5, units=['u1'])
+
+    def test_fungible_request_has_no_batch_id(self):
+        molecule = self._request('fungible', 'TEST', 100)
+        (atom,) = [atom for atom in molecule.atoms if atom.isotope == 'T']
+        self.assertIsNone(atom.batchId)
+        self.assertEqual('100', atom.value)
+
+
+class TokenCreationLikeJsTest(unittest.TestCase):
+    """JS initTokenCreation keeps the meta list as given: a repeated key stays twice, in order."""
+
+    def test_repeated_meta_key_is_kept_in_order(self):
+        molecule = _molecule(_wallet(SECRET, 'USER', A)).init_token_creation(
+            _wallet(SECRET, 'TOK', B), 100, [{'key': 'tag', 'value': 'a'}, {'key': 'tag', 'value': 'b'}])
+        (atom,) = [atom for atom in molecule.atoms if atom.isotope == 'C']
+        self.assertEqual([{'key': 'tag', 'value': 'a'}, {'key': 'tag', 'value': 'b'},
+                          {'key': 'walletTokenSlug', 'value': 'TOK'}], atom.meta[:3])
+        self.assertEqual(JS_CREATE_TOKEN_REPEATED_KEY, _digest(molecule))
 
 
 if __name__ == '__main__':

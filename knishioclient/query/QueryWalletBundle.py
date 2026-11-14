@@ -6,7 +6,7 @@ from .Query import Query
 class QueryWalletBundle(Query):
     def __init__(self, knish_io_client: 'KnishIOClient', query: str = None):
         super(QueryWalletBundle, self).__init__(knish_io_client, query)
-        self.default_query = 'query( $bundleHash: String, $bundleHashes: [ String! ], $key: String, $keys: [ String! ], $value: String, $values: [ String! ], $keys_values: [ MetaInput ], $latest: Boolean, $limit: Int, $order: String ) { WalletBundle( bundleHash: $bundleHash, bundleHashes: $bundleHashes, key: $key, keys: $keys, value: $value, values: $values, keys_values: $keys_values, latest: $latest, limit: $limit, order: $order ) @fields }'
+        self.default_query = 'query( $bundleHash: String, $bundleHashes: [String!], $key: String, $keys: [String!], $value: String, $values: [String!], $keys_values: [MetaInput], $latest: Boolean, $limit: Int, $order: String ) { WalletBundle( bundleHash: $bundleHash, bundleHashes: $bundleHashes, key: $key, keys: $keys, value: $value, values: $values, keys_values: $keys_values, latest: $latest, limit: $limit, order: $order ) @fields }'
         self.fields = {
             'bundleHash': None,
             'slug': None,

@@ -15,7 +15,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from knishioclient.client import KnishIOClient
-from knishioclient.exception import UnauthenticatedException
+from knishioclient.exception import AuthorizationRejectedException
 from utils.demo_config import validate_environment, get_demo_config
 from utils.demo_helpers import (
     print_demo_header, print_demo_footer, print_section, 
@@ -77,7 +77,7 @@ def main():
                 else:
                     print_error("Guest authentication not supported or failed")
                     
-            except UnauthenticatedException:
+            except AuthorizationRejectedException:
                 print_error("Guest authentication not available on this server")
             except Exception as e:
                 print_error(f"Guest authentication error: {e}")

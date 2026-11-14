@@ -112,6 +112,22 @@ class OtsV2VectorTest(unittest.TestCase):
                     check.ots(molecule)
 
 
+class IndexedKeyTest(unittest.TestCase):
+    """The indexed key is secret + position as exact integers (JS BigInt). Both the secret and
+    the position at their maximum carry past 1024 bits; the keys below were captured before the
+    addition moved from numpy object arrays to plain int."""
+
+    def test_maximal_secret_and_position_carry(self):
+        import hashlib
+        v2 = Wallet.generate_key('f' * 2048, 'USER', 'f' * 64, 2)
+        v1 = Wallet.generate_key('f' * 2048, 'USER', 'f' * 64, 1)
+        self.assertEqual(8192, len(v2))
+        self.assertEqual('a4dc728c92d55f5ce429d0cb9c95d6d792acad3e40b2453d521fd936935ab1e2',
+                         hashlib.sha256(v2.encode()).hexdigest())
+        self.assertEqual('dc21d77b6bbf19c57170ef9143e781a445b0d8c198dd0a3576887bce9eca4dec',
+                         hashlib.sha256(v1.encode()).hexdigest())
+
+
 class OtsV2RoundTripTest(unittest.TestCase):
     """A v2 source wallet signs a molecule that verifies; one changed character breaks it."""
 

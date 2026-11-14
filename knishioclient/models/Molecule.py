@@ -11,7 +11,6 @@ from .MoleculeStructure import MoleculeStructure
 from .Atom import Atom
 from .AtomMeta import AtomMeta
 from .Rule import Rule
-from .Meta import Meta
 from .Wallet import Wallet
 from .TokenUnit import TokenUnit
 
@@ -905,32 +904,24 @@ class Molecule(MoleculeStructure):
         """
         self.molecularHash = None
 
-        metas = Meta.normalize_meta(token_meta)
+        # Mirror the JS reference `new AtomMeta(meta).setMetaWallet(recipientWallet)`: the C-atom
+        # carries the token meta as given (a list keeps its order and any repeated key) followed by
+        # the 7 PREFIXED wallet* keys (walletTokenSlug, walletBundleHash, walletAddress,
+        # walletPosition, walletBatchId, walletPubkey, walletCharacters) in insertion order.
+        atom_meta = AtomMeta(token_meta)
+        atom_meta.set_meta_wallet(recipient)
 
-        # Cross-SDK parity (2026-06-15, cycle 22): mirror the JS reference
-        # `new AtomMeta(meta).setMetaWallet(recipientWallet)` — the C-atom carries the
-        # user token meta followed by the 7 PREFIXED wallet* keys (walletTokenSlug,
-        # walletBundleHash, walletAddress, walletPosition, walletBatchId, walletPubkey,
-        # walletCharacters) in insertion order, with no unprefixed pubkey/characters and no
-        # unprefixed walletAddress/Position.
-        self.add_atom(
-            Atom(
-                self.sourceWallet.position,
-                self.sourceWallet.address,
-                'C',
-                self.sourceWallet.token,
-                amount,
-                recipient.batchId,
-                'token',
-                recipient.token,
-                AtomMeta(Meta.aggregate_meta(metas)).set_meta_wallet(recipient).get(),
-                None,
-                self.generate_index()
-            )
-        )
+        self.add_atom(Atom.create(
+            isotope='C',
+            wallet=self.sourceWallet,
+            value=amount,
+            meta_type='token',
+            meta_id=recipient.token,
+            meta=atom_meta,
+            batch_id=recipient.batchId
+        ))
 
         self.add_continue_id_atom()
-        self.atoms = Atom.sort_atoms(self.atoms)
 
         return self
 

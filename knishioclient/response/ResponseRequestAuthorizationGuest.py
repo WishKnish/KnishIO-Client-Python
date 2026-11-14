@@ -58,16 +58,21 @@ class ResponseRequestAuthorizationGuest(Response):
     
     def pub_key(self):
         """
-        Returns public key
-        
+        Returns the validator's ML-KEM public key (the mutation selects ``pubkey``; ``key`` is the
+        older name)
+
         :return: str
         """
+        payload = self.payload() or {}
+        if 'pubkey' in payload:
+            return payload['pubkey']
         return self.payload_key('key')
-    
+
     def encrypt(self):
         """
-        Returns encrypt flag
-        
+        Returns encrypt flag, or None when the reply does not carry one (the mutation does not
+        select it)
+
         :return: Any
         """
-        return self.payload_key('encrypt')
+        return (self.payload() or {}).get('encrypt')

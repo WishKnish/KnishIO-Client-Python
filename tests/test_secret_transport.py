@@ -132,6 +132,30 @@ class GuestEncryptionTest(unittest.TestCase):
         self.assertFalse(client.client().has_encryption())
         self.assertEqual('guest-token', client.client().get_auth_token())
 
+    def _guest_reply(self, reply):
+        from knishioclient.response.ResponseRequestAuthorizationGuest import ResponseRequestAuthorizationGuest
+        client = KnishIOClient('https://example.invalid')
+        query = mock.Mock()
+        query.execute.side_effect = lambda variables: ResponseRequestAuthorizationGuest(query, reply)
+        with mock.patch.object(type(client), 'create_query', return_value=query):
+            response = client.request_guest_auth_token('public', encrypt=False)
+        return client, response
+
+    def test_rejected_guest_reply_raises_authorization_rejected(self):
+        from knishioclient.exception import AuthorizationRejectedException
+        with self.assertRaisesRegex(AuthorizationRejectedException,
+                                    r'^KnishIOClient::request_guest_auth_token\(\) - Authorization attempt '
+                                    r'rejected by ledger\. Reason: '):
+            self._guest_reply({'errors': [{'message': 'denied'}]})
+
+    def test_validator_shaped_guest_reply_is_accepted(self):
+        client, response = self._guest_reply(
+            {'data': {'AccessToken': {'token': 't', 'pubkey': 'pk', 'expiresAt': 4102444800}}})
+        self.assertEqual('pk', response.pub_key())
+        self.assertIsNone(response.encrypt())
+        self.assertEqual('t', client.client().get_auth_token())
+        self.assertEqual('pk', client.client()._HttpClient__pubkey)
+
 
 class DecryptFailureTest(unittest.TestCase):
 

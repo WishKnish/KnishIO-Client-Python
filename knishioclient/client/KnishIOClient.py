@@ -6,6 +6,8 @@ import logging
 import time
 from ..exception import (
     UnauthenticatedException,
+    AuthorizationRejectedException,
+    BatchIdException,
     CodeException,
     TransferBalanceException,
     NegativeMeaningException,
@@ -26,6 +28,7 @@ from ..query import (
     QueryBatch,
     QueryBatchHistory,
     QueryPolicy,
+    QueryToken,
 )
 from ..mutation import (
     Mutation,
@@ -40,7 +43,7 @@ from ..mutation import (
     MutationCreateWallet,
     MutationCreateMeta
 )
-from ..models import Wallet, Molecule, TokenUnit
+from ..models import Wallet, Molecule, TokenUnit, Meta, AtomMeta
 from ..libraries.array import get_signed_atom
 from ..libraries.crypto import generate_bundle_hash
 from ..libraries import decimal, strings, crypto
@@ -480,18 +483,19 @@ class KnishIOClient(object):
 
     def create_token(self, token_slug: str, initial_amount,
                      token_metadata=None, units=None):
-        data_metas = token_metadata or {}
+        # A dict or a [{key, value}] list (kept as a list, so its order and repeated keys reach
+        # the C-atom as JS sends them); copied, so the caller's metas are not changed.
+        data_metas = list(token_metadata) if isinstance(token_metadata, list) else dict(token_metadata or {})
         # Wallet(secret, bundle, token, …) — token_slug MUST be the `token` kwarg, not the 2nd
         # positional (which is `bundle`). The positional form left token='USER' (the default) +
         # bundle=token_slug, so create_token always tried to create token 'USER' ("already exists").
         recipient_wallet = Wallet(self.secret(), token=token_slug, mlkem_param_set=self.get_mlkem_parameter_set(),
                                   ots_version=self.get_ots_version())
 
-        # Read the fungibility meta with a plain dict.get: array_get() deliberately returns its
-        # default for STRING leaf values (it navigates into nested objects), so it returned None
-        # here -> the stackable block below never ran (no splittable/decimals/tokenUnits, amount
-        # stayed as passed) and stackable create produced an empty token.
-        fungibility = data_metas.get('fungibility')
+        # Read the fungibility meta from the aggregated metas (a plain lookup: array_get()
+        # deliberately returns its default for STRING leaf values, so it returned None here ->
+        # the stackable block below never ran and stackable create produced an empty token).
+        fungibility = Meta.aggregate_meta(Meta.normalize_meta(data_metas)).get('fungibility')
         if fungibility == 'stackable':
             recipient_wallet.batchId = crypto.generate_batch_id()
         # Stackable / non-fungible: the token units ARE the supply (mirror JS createToken):
@@ -502,15 +506,21 @@ class KnishIOClient(object):
             # Meta values must be STRINGS on the wire (the validator's MetaItemInput.value is a
             # GraphQL String; Python's Coder doesn't stringify scalars). Ints were rejected
             # ('expected type "String"'). Mirror C++/JS which send "1"/"0".
-            data_metas['splittable'] = '1'
-            data_metas['decimals'] = '0'
             token_units = [
                 unit if isinstance(unit, TokenUnit)
                 else TokenUnit(unit, unit, {}) if isinstance(unit, str)
                 else TokenUnit(unit[0], unit[1] if len(unit) > 1 else unit[0], unit[2] if len(unit) > 2 else {})
                 for unit in units
             ]
-            data_metas['tokenUnits'] = strings.js_json_stringify([unit.to_data() for unit in token_units])
+            unit_metas = {
+                'splittable': '1',
+                'decimals': '0',
+                'tokenUnits': strings.js_json_stringify([unit.to_data() for unit in token_units]),
+            }
+            if isinstance(data_metas, list):
+                data_metas = AtomMeta(data_metas).merge(unit_metas).get()
+            else:
+                data_metas.update(unit_metas)
             initial_amount = len(units)
 
         query = self.create_molecule_mutation(MutationCreateToken)
@@ -518,11 +528,40 @@ class KnishIOClient(object):
 
         return query.execute()
 
-    def request_tokens(self, token_slug: str, requested_amount: int | float,
-                       to: str | bytes | Wallet | None = None, metas: list | dict | None = None):
-        data_metas = metas or {}
+    def request_tokens(self, token_slug: str, requested_amount: int | float | None = None,
+                       to: str | bytes | Wallet | None = None, metas: list | dict | None = None,
+                       batch_id: str | None = None, units: list | None = None):
+        """
+        Requests tokens for a recipient or for this client's bundle (JS ``requestTokens``).
+
+        The token is looked up first: a stackable token gets ``batch_id`` (a generated one when
+        omitted); a non-stackable token rejects a batch id. ``units`` (unit ids) set the amount to
+        their count and the ``tokenUnits`` meta, and cannot be combined with an amount.
+
+        :raises BatchIdException: a batch id for a non-stackable token
+        :raises StackableUnitAmountException: both units and an amount above zero
+        """
+        data_metas = list(metas) if isinstance(metas, list) else dict(metas or {})
         meta_type = None
         meta_id = None
+
+        token_data = self.create_query(QueryToken).execute({'slug': token_slug}).data()
+        is_stackable = (isinstance(token_data, list) and len(token_data) > 0 and isinstance(token_data[0], dict)
+                        and token_data[0].get('fungibility') == 'stackable')
+
+        if not is_stackable and batch_id is not None:
+            raise BatchIdException('Expected Batch ID = null for non-stackable tokens.')
+        if is_stackable and batch_id is None:
+            batch_id = crypto.generate_batch_id()
+
+        if units:
+            if requested_amount is not None and strings.number(requested_amount) > 0:
+                raise StackableUnitAmountException()
+            requested_amount = len(units)
+            data_metas = self.__with_metas(data_metas, {'tokenUnits': strings.js_json_stringify([
+                {'id': unit.id, 'name': unit.name, 'metas': unit.metas} if isinstance(unit, TokenUnit) else unit
+                for unit in units
+            ])})
 
         if to is not None:
             if isinstance(to, (str, bytes)):
@@ -534,7 +573,7 @@ class KnishIOClient(object):
                                        ots_version=self.get_ots_version())
             if isinstance(to, Wallet):
                 meta_type = 'wallet'
-                data_metas.update({
+                data_metas = self.__with_metas(data_metas, {
                     'position': to.position,
                     'bundle': to.bundle,
                 })
@@ -544,9 +583,17 @@ class KnishIOClient(object):
             meta_id = self.bundle()
 
         query = self.create_molecule_mutation(MutationRequestTokens)
-        query.fill_molecule(token_slug, requested_amount, meta_type, meta_id, data_metas)
+        query.fill_molecule(token_slug, requested_amount, meta_type, meta_id, data_metas, batch_id=batch_id)
 
         return query.execute()
+
+    @staticmethod
+    def __with_metas(metas: list | dict, additions: dict) -> list | dict:
+        """``additions`` set on ``metas``: a dict is updated, a [{key, value}] list gets entries appended."""
+        if isinstance(metas, list):
+            return AtomMeta(metas).merge(additions).get()
+        metas.update(additions)
+        return metas
 
     def create_identifier(self, type0, contact, code):
         query = self.create_molecule_mutation(MutationCreateIdentifier)
@@ -948,8 +995,8 @@ class KnishIOClient(object):
         
         self.set_cell_slug(cell_slug or self.cell_slug())
         
-        # Create a temporary wallet for guest
-        # In Python, we don't have fingerprinting, so use a random secret
+        # JS derives the guest secret from the browser fingerprint; outside a browser there is
+        # none and JS uses a random secret too, so a random secret matches the reference.
         guest_secret = crypto.generate_secret()
         wallet = Wallet(secret=guest_secret, token='AUTH', mlkem_param_set=self.get_mlkem_parameter_set(),
                         ots_version=self.get_ots_version())
@@ -972,7 +1019,9 @@ class KnishIOClient(object):
             self.client().set_encryption(encrypt)
             return response
         else:
-            raise UnauthenticatedException(f'Guest authentication failed: {response.reason()}')
+            raise AuthorizationRejectedException(
+                f'KnishIOClient::request_guest_auth_token() - Authorization attempt rejected by ledger. '
+                f'Reason: {response.reason()}')
     
     def request_profile_auth_token(self, secret: str, encrypt: bool = False):
         """
