@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Secret handling and the encrypted transport:
-- AES-GCM IVs come from the OS CSPRNG (os.urandom), not numpy's Mersenne Twister;
+- AES-GCM IVs come from the OS CSPRNG (os.urandom);
 - the Node ML-KEM bridge receives seeds and secret keys on stdin, never in argv, and its errors
   do not echo them;
 - a guest session asked to encrypt binds the token, the validator's key and its wallet to the
@@ -11,6 +11,7 @@ Secret handling and the encrypted transport:
 
 import base64
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -33,11 +34,12 @@ SECRET = crypto.generate_secret('fleet-audit-2026-11')
 
 class IvSourceTest(unittest.TestCase):
 
-    def test_iv_does_not_come_from_numpy(self):
+    def test_iv_comes_from_os_urandom(self):
         key = bytes(range(32))
-        with mock.patch('numpy.random.bytes', side_effect=AssertionError('numpy.random.bytes used for an IV')):
+        with mock.patch('knishioclient.models.Wallet.os.urandom', wraps=os.urandom) as urandom:
             first = Wallet.encrypt_with_shared_secret(b'message', key)
             second = Wallet.encrypt_with_shared_secret(b'message', key)
+        urandom.assert_called()
         self.assertNotEqual(first[:12], second[:12])
         self.assertEqual(b'message', Wallet.decrypt_with_shared_secret(first, key))
 

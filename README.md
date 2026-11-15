@@ -25,7 +25,7 @@ pip install knishioclient
   Apple silicon, Homebrew's library directory is not on the default search path, so also export
   `DYLD_FALLBACK_LIBRARY_PATH="$(brew --prefix libsodium)/lib"`.
 - Virtual environment (recommended)
-- Required packages: numpy, cryptography, libnacl, base58, aiohttp
+- Required packages: cryptography, libnacl, base58, aiohttp
 
 **Setup with virtual environment:**
 

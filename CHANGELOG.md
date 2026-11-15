@@ -18,6 +18,25 @@ detail, the entry says so instead of guessing.
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- A ledger rejection of the profile authorization in `request_profile_auth_token` raises
+  `AuthorizationRejectedException` instead of `UnauthenticatedException` (see Fixed).
+- `numpy` is no longer a dependency (see Changed).
+
+### Changed
+
+- `charset_base_convert` (`libraries/strings.py`) converts with plain Python integers instead of
+  `numpy` object arrays; its outputs are unchanged (`TestBase17Enumeration` in
+  `tests/test_patent_vectors.py`). `numpy` is removed from `requirements.txt`, both lock files and
+  the README, so the 1.8.1 note that "`numpy` is still a dependency" no longer holds.
+
+### Fixed
+
+- `KnishIOClient.request_profile_auth_token` raises `AuthorizationRejectedException` ("Authorization
+  attempt rejected by ledger. Reason: …") when the ledger rejects the profile authorization, as JS
+  does, instead of `UnauthenticatedException`.
+
 ## [1.8.1] — 2026-11-13
 
 ### Upgrade notes

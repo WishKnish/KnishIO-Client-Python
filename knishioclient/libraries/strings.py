@@ -9,7 +9,6 @@ import secrets
 
 from decimal import Decimal
 from typing import List, Any
-import numpy as np
 from libnacl.encode import hex_decode, hex_encode, base64_encode, base64_decode
 
 
@@ -60,23 +59,17 @@ def charset_base_convert(src: str, from_base: int, to_base: int, src_symbol_tabl
             )
         )
 
-    value, big_integer_zero, big_integer_to_base, big_integer_from_base = (np.array([0], dtype='object'),
-                                                                           np.array([0], dtype='object'),
-                                                                           np.array([to_base], dtype='object'),
-                                                                           np.array([from_base], dtype='object'))
+    value = 0
     for symbol in src:
-        value = np.add(np.multiply(value, big_integer_from_base), np.array([src_symbol_table.index(symbol)], dtype='object'))
+        value = value * from_base + src_symbol_table.index(symbol)
 
-    if value[0] <= 0:
+    if value <= 0:
         return 0
 
-    condition, target = True, ''
-
-    while condition:
-        idx = np.mod(value, big_integer_to_base)
-        target = '%s%s' % (dest_symbol_table[idx[0]], target)
-        value = np.floor_divide(value, big_integer_to_base)
-        condition = not np.equal(value, big_integer_zero)[0]
+    target = ''
+    while value:
+        value, idx = divmod(value, to_base)
+        target = dest_symbol_table[idx] + target
 
     return target
 

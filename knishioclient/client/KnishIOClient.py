@@ -1059,7 +1059,10 @@ class KnishIOClient(object):
                         'pointer fallback' if pointer_wallet is not None else 'no ContinuID pointer')
             return self.__bind_profile_authorization(response, wallet, encrypt)
         else:
-            raise UnauthenticatedException(f'Profile authentication failed: {response.reason()}')
+            raise AuthorizationRejectedException(
+                f'KnishIOClient::request_profile_auth_token() - Authorization attempt rejected by ledger. '
+                f'Reason: {response.reason()}'
+            )
 
     def __continu_id_authorization_wallet(self) -> Wallet | None:
         """The USER wallet registered at the bundle's ContinuID pointer, rebuilt from the secret,

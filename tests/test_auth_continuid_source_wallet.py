@@ -34,7 +34,7 @@ if SDK_ROOT not in sys.path:
     sys.path.insert(0, SDK_ROOT)
 
 from knishioclient.client.KnishIOClient import KnishIOClient
-from knishioclient.exception import InvalidResponseException, UnauthenticatedException
+from knishioclient.exception import AuthorizationRejectedException, InvalidResponseException
 from knishioclient.libraries import crypto
 from knishioclient.models import AuthToken, Wallet
 
@@ -136,7 +136,7 @@ class ProvenReloginTest(unittest.TestCase):
         with mock.patch.object(client.client(), "send", side_effect=transport.send):
             try:
                 response = client.request_profile_auth_token(SECRET, encrypt=False)
-            except UnauthenticatedException as error:
+            except AuthorizationRejectedException as error:
                 return client, transport, error
         return client, transport, response
 
@@ -211,8 +211,8 @@ class ProvenReloginTest(unittest.TestCase):
         pointer = continu_id_wallet(self.bundle, address=self.pointer_wallet.address)
         _, transport, error = self._login(pointer, ["rejected", "rejected"])
 
-        self.assertIsInstance(error, UnauthenticatedException)
-        self.assertIn("Profile authentication failed: forged signature", str(error))
+        self.assertIsInstance(error, AuthorizationRejectedException)
+        self.assertIn("Authorization attempt rejected by ledger. Reason: forged signature", str(error))
         self.assertEqual([proposal.atoms[0].token for proposal in transport.proposals], ["USER", "AUTH"])
 
     def test_continuid_query_errors_propagate_without_proposing(self):
