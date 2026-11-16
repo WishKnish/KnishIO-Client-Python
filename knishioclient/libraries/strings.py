@@ -36,7 +36,7 @@ def random_string(length: int = 256, alphabet: str = 'abcdef0123456789') -> str:
 
 
 def charset_base_convert(src: str, from_base: int, to_base: int, src_symbol_table: str = None,
-                         dest_symbol_table: str = None) -> bool | str | int:
+                         dest_symbol_table: str = None) -> bool | str:
     """
     Convert charset between bases and alphabets
 
@@ -45,7 +45,7 @@ def charset_base_convert(src: str, from_base: int, to_base: int, src_symbol_tabl
     :param to_base: int
     :param src_symbol_table: str default None
     :param dest_symbol_table: str default None
-    :return: bool | str | int
+    :return: bool | str (False when a base exceeds its symbol table; '0' for a zero or empty value, as in JS)
     """
 
     base_symbols = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz~`!@#$%^&*()-_=+[{]}\\|;:\'",<.>/?¿¡'
@@ -58,20 +58,18 @@ def charset_base_convert(src: str, from_base: int, to_base: int, src_symbol_tabl
                 src, to_base, len(src_symbol_table), len(dest_symbol_table)
             )
         )
+        return False
 
     value = 0
     for symbol in src:
         value = value * from_base + src_symbol_table.index(symbol)
-
-    if value <= 0:
-        return 0
 
     target = ''
     while value:
         value, idx = divmod(value, to_base)
         target = dest_symbol_table[idx] + target
 
-    return target
+    return target or '0'
 
 
 def current_time_millis() -> str:

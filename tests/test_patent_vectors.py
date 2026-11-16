@@ -58,15 +58,11 @@ def hex_to_base17(hex_input: str) -> str:
     """Convert a hex string to base17 using the SDK's charset_base_convert,
     then right-pad/justify to 64 characters (matching Rust reference).
     """
-    result = strings.charset_base_convert(
+    return strings.charset_base_convert(
         hex_input, 16, 17,
         "0123456789abcdef",
         "0123456789abcdefg",
-    )
-    if isinstance(result, str):
-        return result.rjust(64, "0")
-    # charset_base_convert returns 0 (int) for all-zero input
-    return "0" * 64
+    ).rjust(64, "0")
 
 
 def normalized_sum(base17_str: str) -> int:
@@ -245,6 +241,16 @@ class TestBase17Enumeration(unittest.TestCase):
                     tv["normalizedSum"],
                     f"Normalized sum for {tv['name']} is {ns}, expected {tv['normalizedSum']}",
                 )
+
+    def test_zero_and_out_of_table_bases(self):
+        """A zero or empty value is '0' and a base above its table is False, as in JS."""
+        self.assertEqual(strings.charset_base_convert('', 16, 17), '0')
+        self.assertEqual(
+            strings.charset_base_convert('0' * 64, 16, 17, '0123456789abcdef', '0123456789abcdefg'), '0'
+        )
+        self.assertIs(
+            strings.charset_base_convert('ff', 16, 99, '0123456789abcdef', '0123456789abcdefg'), False
+        )
 
 
 # ===========================================================================

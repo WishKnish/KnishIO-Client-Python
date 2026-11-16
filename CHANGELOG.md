@@ -36,6 +36,10 @@ detail, the entry says so instead of guessing.
 - `KnishIOClient.request_profile_auth_token` raises `AuthorizationRejectedException` ("Authorization
   attempt rejected by ledger. Reason: …") when the ledger rejects the profile authorization, as JS
   does, instead of `UnauthenticatedException`.
+- `charset_base_convert` (`libraries/strings.py`) returns the string `'0'` for a zero or empty value
+  and `False` when a base exceeds its symbol table, as JS does. It returned int `0` and, for a base
+  above the table, logged and carried on; an all-zero base17 digest in `Atom.hash_atoms` is now 64
+  `'0'` characters, as in JS, instead of int `0`.
 
 ## [1.8.1] — 2026-11-13
 
