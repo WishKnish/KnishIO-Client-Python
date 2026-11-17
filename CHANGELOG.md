@@ -23,6 +23,9 @@ detail, the entry says so instead of guessing.
 - A ledger rejection of the profile authorization in `request_profile_auth_token` raises
   `AuthorizationRejectedException` instead of `UnauthenticatedException` (see Fixed).
 - `numpy` is no longer a dependency (see Changed).
+- A token unit whose served `metas` is not JSON now raises `ValueError` (`json.JSONDecodeError` for
+  a syntax error) from `query_wallets`, `payload()` and the transfer, burn, replenish, fuse and
+  buffer flows; it read as `{}` before (see Fixed).
 
 ### Changed
 
@@ -40,6 +43,9 @@ detail, the entry says so instead of guessing.
   and `False` when a base exceeds its symbol table, as JS does. It returned int `0` and, for a base
   above the table, logged and carried on; an all-zero base17 digest in `Atom.hash_atoms` is now 64
   `'0'` characters, as in JS, instead of int `0`.
+- `TokenUnit.create_from_graph_ql` raises for served unit `metas` that are not JSON, as JS
+  `JSON.parse` throws, instead of reading them as `{}` and signing `{}`; `NaN` and `Infinity` are
+  rejected as well. A served `[]` stays a list and signs as `[]`, as in JS (it became `{}`).
 
 ## [1.8.1] — 2026-11-13
 

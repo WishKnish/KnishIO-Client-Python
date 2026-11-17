@@ -1,14 +1,20 @@
 # -*- coding: utf-8 -*-
 
 from typing import List, Dict
-from json import JSONDecodeError, loads
+from json import loads
+
+
+def _reject_constant(name):
+    # JS JSON.parse rejects NaN, Infinity and -Infinity, which json.loads accepts.
+    raise ValueError(f"TokenUnit metas is not JSON: {name}")
 
 
 class TokenUnit:
     def __init__(self, id: str, name: str, metas: Dict = None):
         self.id: str = id
         self.name: str = name
-        self.metas: Dict = metas or {}
+        # JS `metas || {}`: a falsy value becomes {}, but an empty list stays a list.
+        self.metas: Dict = metas if (metas or isinstance(metas, list)) else {}
 
     @classmethod
     def create_from_graph_ql(cls, data: "TokenUnit" | Dict) -> "TokenUnit":
@@ -16,10 +22,8 @@ class TokenUnit:
             return cls(data.id, data.name, data.metas)
         metas = data.get("metas") or {}
         if isinstance(metas, str):
-            try:
-                metas = loads(metas)
-            except JSONDecodeError:
-                metas = {}
+            # As JS JSON.parse: text that is not JSON raises (json.JSONDecodeError is a ValueError).
+            metas = loads(metas, parse_constant=_reject_constant)
         # Defensive: the validator stores stackable units id-only at genesis (name is an
         # empty string via COALESCE; metas may be null) — use .get() so a missing key
         # doesn't KeyError.

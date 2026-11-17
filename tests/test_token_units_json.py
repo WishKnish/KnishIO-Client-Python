@@ -20,7 +20,7 @@ if SDK_ROOT not in sys.path:
     sys.path.insert(0, SDK_ROOT)
 
 from knishioclient.client.KnishIOClient import KnishIOClient
-from knishioclient.libraries import crypto
+from knishioclient.libraries import crypto, strings
 from knishioclient.models.Atom import Atom
 from knishioclient.models.Molecule import Molecule
 from knishioclient.models.TokenUnit import TokenUnit
@@ -82,6 +82,30 @@ class TokenUnitsJsonTest(unittest.TestCase):
                          '[["unit1","Unit One",{"colour":"red"}],["unit2","Unit Two",{}],["unit3","unit3",{}],'
                          '["unit4","unit4",{}],["unit5","Unit Five",{}]]')
         self.assertEqual(amount, 5)
+
+    def test_served_metas_that_are_not_json_raise_as_js(self):
+        # JS JSON.parse throws a SyntaxError for each of these.
+        for metas in ('{bad', '{}x', 'nullx', 'NaN', '{"a":NaN}'):
+            with self.subTest(metas=metas), self.assertRaises(ValueError):
+                TokenUnit.create_from_graph_ql({'id': 'u1', 'name': 'u1', 'metas': metas})
+
+    def test_served_metas_read_as_js(self):
+        # JSON.stringify([unit.toData()]) of the JS SDK for the same served metas.
+        cases = {
+            '[]': '[["u1","u1",[]]]',
+            '[1,2]': '[["u1","u1",[1,2]]]',
+            '5': '[["u1","u1",5]]',
+            'null': '[["u1","u1",{}]]',
+            'false': '[["u1","u1",{}]]',
+            '0': '[["u1","u1",{}]]',
+            '""': '[["u1","u1",{}]]',
+            '': '[["u1","u1",{}]]',
+            None: '[["u1","u1",{}]]',
+        }
+        for metas, expected in cases.items():
+            with self.subTest(metas=metas):
+                unit = TokenUnit.create_from_graph_ql({'id': 'u1', 'name': 'u1', 'metas': metas})
+                self.assertEqual(strings.js_json_stringify([unit.to_data()]), expected)
 
 
 if __name__ == '__main__':

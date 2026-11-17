@@ -134,6 +134,16 @@ class QueryWalletsTest(unittest.TestCase):
             [(stackable.position, ["U1", "U3"]), (fused.position, ["FUSED"])],
         )
 
+    def test_query_wallets_raises_for_unit_metas_that_are_not_json(self):
+        ledger = StubLedger()
+        stackable = Wallet(secret=ledger.secret, token="FUSETOK")
+        row = wallet_row(stackable, 1, ["U1"])
+        row["tokenUnits"][0]["metas"] = "{bad"
+        ledger.wallets = [row]
+
+        with self.assertRaises(ValueError):
+            ledger.client().query_wallets()
+
 
 class PreSubmitCheckTest(unittest.TestCase):
     """Contract 9.7: a high-level operation refuses a molecule its own check rejects and sends
